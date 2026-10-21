@@ -14,8 +14,8 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 
 ## Now
 
-- [ ] **Router CLAUDE.md for this repo**:
-  - Write a thin ~20-line `CLAUDE.md` that names the one validate command (next item) and links to `README.md`,
+- [ ] **Router CLAUDE.md for this repo**: a starter `CLAUDE.md` exists; turn it into a router.
+  - Keep it a thin ~20-line `CLAUDE.md` that names the one validate command (next item) and links to `README.md`,
     `docs/principles/`, `docs/decisions/` and `BACKLOG.md`.
   - Add `docs/principles/` with 4–6 one-page principles taken from the handoff §2d that fit this repo: one source of
     truth, fail closed, examples over prose, lean agent context, test the workflow, delete what's off the common path.

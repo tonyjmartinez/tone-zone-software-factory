@@ -95,6 +95,19 @@ You need the [GitHub CLI](https://cli.github.com) (`gh auth login`) and Claude C
 
 Add `alias factory=~/path/to/tone-zone-software-factory/bin/factory` to your shell rc.
 
+## The factory works on itself
+
+This repo is wired in too. `.github/workflows/factory.yml` calls the reusable workflows locally, and `ci.yml`
+runs the factory's own checks: script syntax, `tests/guard.sh`, actionlint on the workflows and rendered templates,
+and JSON validity. So you can:
+
+- open an issue here labeled `claude`, or run `factory task tone-zone-software-factory "..."`, and get a PR;
+- comment `@claude` on any PR here;
+- rely on the overnight builder (`routines/factory-nightly.md`) to keep working through `BACKLOG.md`.
+
+It needs the same one-time setup as a project: the `CLAUDE_CODE_OAUTH_TOKEN` secret on this repo, and the Claude
+GitHub App installed on it.
+
 ## Using it
 
 - **Terminal:** `factory task succulents.info "Add a 'Pet safe' filter to the plant library"` files a

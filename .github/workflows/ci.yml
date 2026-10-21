@@ -1,0 +1,45 @@
+# The factory's own checks. The Factory workflow watches this one by name ("CI").
+name: CI
+
+on:
+  push:
+    branches: [main, claude/nice-hamilton-er5d8e]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7 "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Script syntax
+        run: |
+          for f in bin/factory plugin/scripts/*.sh templates/claude/hooks/*.sh tests/*.sh; do bash -n "$f"; done
+          node --check bin/lib/*.mjs plugin/scripts/*.mjs
+      - name: Permission guard
+        run: tests/guard.sh
+      - name: Lint workflows (factory + rendered project templates)
+        run: |
+          actionlint .github/workflows/*.yml
+          mkdir -p "$RUNNER_TEMP/render/.github/workflows" && cd "$RUNNER_TEMP/render" && git init -q
+          sed -e 's/__CI_WORKFLOW__/CI/' -e 's/__SETUP__/npm ci/' "$GITHUB_WORKSPACE/templates/workflows/factory.yml" > .github/workflows/factory.yml
+          cp "$GITHUB_WORKSPACE/templates/workflows/ci.yml" .github/workflows/ci.yml
+          actionlint
+      - name: Plugin and templates are valid JSON
+        run: |
+          for f in .claude-plugin/marketplace.json plugin/.claude-plugin/plugin.json templates/claude/settings.json; do node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" && echo "ok $f"; done
