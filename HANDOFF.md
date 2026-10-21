@@ -60,37 +60,40 @@ cheap model, merged and deployed with as little human effort as safety allows.
    pastes the change himself. On top of that, each project needs "Allow auto-merge" plus a ruleset requiring its CI
    check, which are repo settings only Tony can change.
 
-## The no-touch path (use this while the secrets are missing)
+## Live now: the no-touch nightly (cloud sessions, no secrets)
 
-Cloud scheduled sessions need no secrets, because they run on Tony's Claude plan with the repo attached. The pattern
-that worked:
+Set up and verified on 2026-10-21. Each project has its own cloud session with the repo attached and a daily
+scheduled task. The task's message says "follow `routines/cloud-run.md` for PROJECT=x", so the procedure lives in this
+repo; edit `routines/cloud-run.md` to change all four at once.
 
-1. `create_session` with `source_url` set to the project repo, `model: claude-sonnet-5-5` (or Haiku for polish), and
-   a tag such as `factory-nightly`.
-2. Kick it off with `send_message`. A trigger fired into a brand-new session never got delivered; a direct message
-   did. The factory builder session, kicked off this way, pushed `claude/factory-nightly` and **opened PR #1** on its
-   own.
-3. Bind a daily `create_trigger` with `persistent_session_id`, so it fires into that session.
-   - **Unverified:** whether later scheduled fires reliably wake a session that has already had a first turn. Check
-     `get_trigger` → `last_run` and the session's `list_events` the morning after.
-   - The prompt for each project: clone the factory, follow `plugin/commands/implement.md` in SHIP mode with
-     `${CLAUDE_PLUGIN_ROOT}` = the clone's `plugin/`, and use the project's routine from `routines/<NIGHTLY>.md`.
-     Use `claude/night-*` branch names so the GitHub Night shift's back-pressure also sees them later.
-4. Before starting new work, check for an open `claude/night-*` PR on that repo and stop if there is one. That's the
-   same back-pressure the workflow uses, and it keeps the cost of an idle night near zero.
-5. Once Tony adds the secrets, switch to the GitHub Night shift and delete these triggers, so nothing runs twice.
+| Scheduled task | Time (UTC) | Session | Model |
+| --- | --- | --- | --- |
+| `trig_0127NSCWT2PxPSavrYMY2kQg` factory | 07:07 | `session_015UrYtFCo7bkBmaoynzihjK` | Sonnet |
+| `trig_01N3YaD2gGeJgo68Z7vMZQe4` agent-vs-agent | 07:21 | `session_01EW3QjXmYGxz66G68ZevrST` | Sonnet |
+| `trig_01S7t6qT6Z9HsZjx1axEBRLe` succulents.info | 07:33 | `session_01Wf4tFVEwMgEJo17X6J1D34` | Haiku |
+| `trig_01EDajUFkSXZQ6skXEHDprsh` tonyjmartinez | 07:47 | `session_01XvvdCFrgLuzdDgEdL7TT3s` | Haiku |
 
-All earlier triggers were deleted. The four sessions that remain from setup can be archived:
-`session_015UrYtFCo7bkBmaoynzihjK` (factory), `session_01EW3QjXmYGxz66G68ZevrST` (agent-vs-agent),
-`session_012D2QvyVEujpsG8X8cM5wtg` (succulents.info) and `session_01MppW5gK8MnK1hEutWn9sVb` (tonyjmartinez).
+- **Delivery is verified.** A one-shot test task fired into the factory session at 04:46 and was answered, and these
+  sessions open their own PRs. One catch: a session must have had at least one turn before scheduled messages reach
+  it. Start a new session with `send_message` first.
+- **Back-pressure.** Open `claude/night-*`, `claude/polish-*` or `claude/phase-*` PRs make a run stop. Tony's only job
+  is merging PRs.
+- **Cost watch.** These are long-lived sessions, so every wake-up re-reads the session's history. A one-line reply on a
+  session with ~100k tokens of history cost about $0.87 at API rates. Check `get_session` → `usage` /
+  `context_usage` weekly. When a session passes ~300k tokens, rotate it:
+  1. `create_session` with the same repo and model;
+  2. a `send_message` "ready" ping;
+  3. delete the old task and create a new one for the new session;
+  4. `archive_session` the old session.
+- **If Tony adds the GitHub secrets,** the Night shift workflow (08:17 UTC) becomes the primary path. Delete these four
+  tasks then, so nothing runs twice. Until then the workflow stays idle.
 
 ## Loose ends to tidy
 
-- **Factory PR #1** (`claude/factory-nightly`, router CLAUDE.md and principles pages): review it, and if it's good,
-  tick BACKLOG item 1. If it stays open, the backlog routine will rebuild the same thing.
-- **Stray branches** from the first runs, not `night-` prefixed: `claude/polish-noindex-utility-pages`
-  (succulents.info), `claude/phase-0-scaffold` (agent-vs-agent) and `claude/polish-page-title-meta`
-  (tonyjmartinez). Open PRs for them or delete them.
+- Factory PR #1 was reviewed and merged on 2026-10-21, and `tests/validate.sh` was added. BACKLOG items 1 and 2 are done.
+- First-run PRs are waiting for Tony to merge: agent-vs-agent#1 (Phase 0), succulents.info#1 (noindex utility
+  pages) and tonyjmartinez#8 (title and meta tags). Back-pressure holds each project until its PR is merged or
+  closed.
 - **`factory install` and project caller workflows** reference `tonyjmartinez/tone-zone-software-factory/...@main`,
   but this repo has no `main` branch yet. Either create `main` from the default branch and make it default, or change
   the references.
