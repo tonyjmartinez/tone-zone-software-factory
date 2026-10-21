@@ -15,11 +15,6 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 
 ## Now
 
-- [ ] **Router CLAUDE.md for this repo**: a starter `CLAUDE.md` exists; turn it into a router.
-  - Keep it a thin ~20-line `CLAUDE.md` that names the one validate command (next item) and links to `README.md`,
-    `docs/principles/`, `docs/decisions/` and `BACKLOG.md`.
-  - Add `docs/principles/` with 4–6 one-page principles taken from the handoff §2d that fit this repo: one source of
-    truth, fail closed, examples over prose, lean agent context, test the workflow, delete what's off the common path.
 - [ ] **Single fail-closed gate**: add `tests/validate.sh` (and `npm run validate` only if a package.json is added) that:
   - runs `tests/guard.sh`, actionlint on `.github/workflows` and the rendered templates, `bash -n` on every script,
     and `node --check` on every `.mjs`;
@@ -82,3 +77,5 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 ## Done
 
 <!-- The nightly builder moves finished items here with the date and PR link. -->
+
+- [x] 2026-10-21 **Router CLAUDE.md for this repo**: 18-line router, 6 principles in `docs/principles/`, `docs/decisions/README.md` stub. CLAUDE.md points at `tests/validate.sh`, which the next item creates.
