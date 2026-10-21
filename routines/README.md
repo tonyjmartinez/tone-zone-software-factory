@@ -11,8 +11,13 @@ the repo, does one bounded unit of work, and opens a PR. You review and merge fr
 | `polish.md` | succulents.info, tonyjmartinez | weekly | Finds and ships one small, high-value improvement |
 | `triage.md` | any | daily | Turns your rough `idea` issues into crisp `claude`-labeled tasks |
 
-Guard rails built into every prompt: one PR per run, never push to main, skip the run if a previous
-routine PR is still open (so unreviewed work doesn't pile up).
+The two build routines are just `/factory:implement ship <instructions>`. That's the same command GitHub
+Actions runs and `bin/factory run` tests locally. Projects wired in by `factory install` enable the factory plugin
+in `.claude/settings.json`, so it's available in cloud sessions too. Guard rails: one PR per run, never push to
+main, and stop if a previous routine PR is still open, so unreviewed work doesn't pile up.
+
+Try one locally first, without `ship` and without pushing anything:
+`bin/factory run agent-vs-agent "$(sed 's|^/factory:implement ship ||' routines/build-next-phase.md)"`
 
 Create one by pasting the prompt into a scheduled task with the repo attached, or ask Claude in a cloud
 session: "create a daily scheduled task on tonyjmartinez/agent-vs-agent with the prompt in

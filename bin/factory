@@ -9,7 +9,14 @@
 #   factory status [alias]                 Claude's open issues and PRs across projects
 #   factory list                           registered projects
 #
-# Needs: gh (logged in), git. `alias` is a directory name under projects/, or owner/repo.
+# Run the agent locally (same plugin commands GitHub Actions runs; nothing is committed or pushed):
+#   factory run <alias|dir> "what to do"   implement on a disposable copy, then audit + verify
+#   factory fix-ci <alias|dir> <log>        fix a failing CI log on a disposable copy
+#   factory review <alias|dir>              review uncommitted changes in a directory
+#     options: --from DIR (copy this local checkout instead of cloning), --model M, --max-turns N,
+#              --ship (work on a fresh GitHub clone and let the agent push + open a PR)
+#
+# Needs: gh (logged in), git, claude. `alias` is a directory name under projects/, or owner/repo.
 set -euo pipefail
 
 FACTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -64,16 +71,10 @@ cmd_add() {
   info "wrote $dir/project.env. Optionally add $dir/CLAUDE.md, then: factory install $1"
 }
 
-cmd_install() {
-  [ $# -eq 1 ] || die "usage: factory install <alias>"
-  load "$1"
-  WORK="$(mktemp -d)"
-  trap 'rm -rf "$WORK"' EXIT
-  info "cloning $REPO"
-  gh repo clone "$REPO" "$WORK/repo" -- --depth 1 -q
-  cd "$WORK/repo"
-  git checkout -q -b factory/install
-
+# Copies the factory files into the current directory (a checkout of the project): the Factory
+# workflow, generic CI when the project has none, CLAUDE.md, and the cloud-session hook.
+# Existing CLAUDE.md and .claude/ files are left alone.
+overlay() {
   mkdir -p .github/workflows
   sed -e "s|__CI_WORKFLOW__|$CI_WORKFLOW|" "$TEMPLATES_DIR/workflows/factory.yml" > .github/workflows/factory.yml
   if [ -n "$SETUP" ]; then
@@ -100,6 +101,19 @@ cmd_install() {
   [ -f .claude/settings.json ] || cp "$TEMPLATES_DIR/claude/settings.json" .claude/settings.json
   [ -f .claude/hooks/session-start.sh ] || cp "$TEMPLATES_DIR/claude/hooks/session-start.sh" .claude/hooks/session-start.sh
   chmod +x .claude/hooks/session-start.sh
+}
+
+cmd_install() {
+  [ $# -eq 1 ] || die "usage: factory install <alias>"
+  load "$1"
+  WORK="$(mktemp -d)"
+  trap 'rm -rf "$WORK"' EXIT
+  info "cloning $REPO"
+  gh repo clone "$REPO" "$WORK/repo" -- --depth 1 -q
+  cd "$WORK/repo"
+  git checkout -q -b factory/install
+
+  overlay
 
   git add -A
   if git diff --cached --quiet; then
@@ -192,6 +206,123 @@ cmd_status() {
   done
 }
 
+# Claude settings that enforce the command's allowed-tools with a PreToolUse hook. Local Claude
+# sessions can run with looser permissions than GitHub Actions; this makes them match.
+guard_settings() {
+  local cmd_file="$FACTORY_DIR/plugin/commands/$1.md"
+  node -e 'const [g, c] = process.argv.slice(1); console.log(JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: `node "${g}" "${c}"` }] }] } }))' \
+    "$FACTORY_DIR/bin/lib/guard.mjs" "$cmd_file"
+}
+
+# Runs a factory plugin command against a disposable copy of a project, the way GitHub Actions
+# would, then audits permissions and re-verifies independently.
+#   agent_run <command> <target> [options] <args...>
+agent_run() {
+  local command="$1" target="$2"; shift 2
+  local from="" model="sonnet" max_turns=80 ship="" args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from) from="$2"; shift 2 ;;
+      --model) model="$2"; shift 2 ;;
+      --max-turns) max_turns="$2"; shift 2 ;;
+      --ship) ship=1; shift ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+  command -v claude >/dev/null || die "install Claude Code: https://claude.com/claude-code"
+
+  if [ -d "$target" ]; then
+    from="$(cd "$target" && pwd)"
+    ALIAS="$(basename "$from")" PROJECT_DIR="" REPO="" SETUP="" CI_WORKFLOW="CI" INSTALL_CI=""
+    [ -f "$PROJECTS_DIR/$ALIAS/project.env" ] && load "$ALIAS"
+  else
+    load "$target"
+  fi
+
+  local runs="${FACTORY_RUNS_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/factory/runs}"
+  local out; out="$runs/$(date +%Y%m%d-%H%M%S)-$ALIAS-$command"
+  local work="$out/repo"
+  mkdir -p "$out"
+
+  if [ -n "$ship" ]; then
+    [ -n "$REPO" ] || die "--ship needs a registered project or owner/repo"
+    info "cloning $REPO (ship mode: the agent will push and open a PR)"
+    gh repo clone "$REPO" "$work" -- -q
+  elif [ -n "$from" ]; then
+    info "copying $from"
+    cp -a "$from" "$work"
+  else
+    info "cloning $REPO"
+    gh repo clone "$REPO" "$work" -- --depth 1 -q
+  fi
+
+  cd "$work"
+  if [ -z "$ship" ]; then
+    # Trial run: cut the copy loose so nothing can reach the real repo, then add the factory files
+    # as `factory install` would and snapshot that as the baseline the agent's diff is measured from.
+    git remote | xargs -r -n1 git remote remove
+    overlay
+    git add -A
+    git -c user.name=factory -c user.email=factory@localhost commit -q -m "factory: local baseline" --allow-empty --no-verify
+  fi
+
+  if [ -f package.json ] && [ ! -d node_modules ]; then
+    info "installing dependencies"
+    if [ -n "$SETUP" ]; then bash -c "$SETUP"; elif [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi >"$out/setup.log" 2>&1 \
+      || { tail -20 "$out/setup.log"; die "dependency install failed (see $out/setup.log)"; }
+  fi
+
+  local prompt="/factory:$command ${ship:+ship }${args[*]}"
+  info "claude -p \"$prompt\" (model $model, max $max_turns turns)"
+  # Project/local settings only: the agent shouldn't pick up your personal hooks or permissions.
+  claude -p "$prompt" \
+    --plugin-dir "$FACTORY_DIR/plugin" \
+    --setting-sources project,local \
+    --settings "$(guard_settings "$command")" \
+    --model "$model" --max-turns "$max_turns" \
+    --output-format stream-json --verbose > "$out/transcript.jsonl" 2>"$out/claude.stderr" || true
+
+  local rc=0
+  node "$FACTORY_DIR/bin/lib/report.mjs" "$out/transcript.jsonl" "$FACTORY_DIR/plugin/commands/$command.md" || rc=$?
+
+  echo "──────── independent verify ────────"
+  if bash "$FACTORY_DIR/plugin/scripts/verify.sh" "$work" >"$out/verify.log" 2>&1; then
+    echo "verify: pass ($(tail -1 "$out/verify.log"))"
+  else
+    echo "verify: FAIL (last lines of $out/verify.log):"; tail -15 "$out/verify.log"; [ "$rc" -ne 0 ] || rc=1
+  fi
+
+  echo "──────── changes ────────"
+  git add -A -N . 2>/dev/null || true
+  git --no-pager diff --stat HEAD | tail -20
+  git diff HEAD > "$out/changes.diff" || true
+  echo
+  info "workspace: $work"
+  info "diff: $out/changes.diff   transcript: $out/transcript.jsonl"
+  return $rc
+}
+
+cmd_run() { [ $# -ge 2 ] || die 'usage: factory run <alias|dir> [options] "what to do"'; agent_run implement "$@"; }
+cmd_fix_ci() {
+  [ $# -ge 2 ] || die "usage: factory fix-ci <alias|dir> [options] <log file>"
+  local t="$1"; shift
+  local a=() log=""
+  for x in "$@"; do if [ -f "$x" ]; then log="$(cd "$(dirname "$x")" && pwd)/$(basename "$x")"; a+=("$log"); else a+=("$x"); fi; done
+  [ -n "$log" ] || die "log file not found"
+  agent_run fix-ci "$t" "${a[@]}"
+}
+
+# Reviews uncommitted changes in place (read-only command, no copy needed).
+cmd_review() {
+  [ $# -ge 1 ] && [ -d "$1" ] || die "usage: factory review <dir>"
+  cd "$1"
+  local out; out="$(mktemp)"
+  claude -p "/factory:review" --plugin-dir "$FACTORY_DIR/plugin" --setting-sources project,local \
+    --settings "$(guard_settings review)" \
+    --model "${FACTORY_REVIEW_MODEL:-sonnet}" --max-turns 30 --output-format stream-json --verbose > "$out" 2>/dev/null || true
+  node "$FACTORY_DIR/bin/lib/report.mjs" "$out" "$FACTORY_DIR/plugin/commands/review.md"
+}
+
 main() {
   command -v gh >/dev/null || die "install the GitHub CLI: https://cli.github.com"
   local cmd="${1:-help}"; shift || true
@@ -203,7 +334,10 @@ main() {
     doctor) cmd_doctor "$@" ;;
     task|t) cmd_task "$@" ;;
     status|st) cmd_status "$@" ;;
-    help|-h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
+    run) cmd_run "$@" ;;
+    fix-ci) cmd_fix_ci "$@" ;;
+    review) cmd_review "$@" ;;
+    help|-h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) die "unknown command '$cmd' (try: factory help)" ;;
   esac
 }

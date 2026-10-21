@@ -15,5 +15,6 @@ concurrency:
 jobs:
   ci:
     uses: tonyjmartinez/tone-zone-software-factory/.github/workflows/ci-node.yml@main
+    secrets: inherit
     permissions:
       contents: read

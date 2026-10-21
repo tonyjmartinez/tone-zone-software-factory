@@ -1,8 +1,6 @@
-# Reusable: when CI fails on a branch Claude created (claude/*), Claude reads the logs,
-# fixes the branch, and pushes. Capped at `max_attempts` fix commits per branch so a
-# stubborn failure can't burn your usage in a loop.
-#
-# Caller wires it to `workflow_run` on the project's CI workflow (see templates/workflows/factory.yml).
+# Reusable: when CI fails on a branch Claude created (claude/*), run /factory:fix-ci on it.
+# Capped at `max_attempts` fix commits per branch so a stubborn failure can't loop.
+# Test the same command locally with `bin/factory fix-ci <project> <log file>`.
 name: Factory / Fix CI
 
 on:
@@ -23,6 +21,9 @@ on:
       node_version:
         type: string
         default: "22"
+      factory_ref:
+        type: string
+        default: main
 
 jobs:
   fix:
@@ -62,14 +63,28 @@ jobs:
             echo "go=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Load the factory plugin
+        if: steps.budget.outputs.go == 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: tonyjmartinez/tone-zone-software-factory
+          ref: ${{ inputs.factory_ref }}
+          path: .factory
+          token: ${{ secrets.FACTORY_TOKEN || github.token }}
+          persist-credentials: false
+
       - name: Collect failing logs
+        id: factory
         if: steps.budget.outputs.go == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
+          echo ".factory/" >> .git/info/exclude
           gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed | tail -n 400 > "$RUNNER_TEMP/ci-failure.log" || true
           wc -l "$RUNNER_TEMP/ci-failure.log"
+          tools=$(sed -n 's/^allowed-tools:[[:space:]]*//p' .factory/plugin/commands/fix-ci.md)
+          echo "allowed_tools=$tools" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v6
         if: steps.budget.outputs.go == 'true' && hashFiles('package.json') != ''
@@ -85,18 +100,10 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: |
-            CI failed on branch `${{ github.event.workflow_run.head_branch }}` in ${{ github.repository }}.
-            Failed run: ${{ github.event.workflow_run.html_url }}
-            The tail of the failing job logs is in `${{ runner.temp }}/ci-failure.log`. Read it first.
-
-            Read CLAUDE.md, reproduce the failure locally with the project's commands, find the root cause,
-            and fix it with the smallest correct change. Never skip, delete, or weaken a test to get green.
-            Re-run the failing command until it passes, then commit with a message ending in
-            `[factory-fix-ci]` and `git push origin HEAD:${{ github.event.workflow_run.head_branch }}`.
-            If the failure is unrelated to this branch (e.g. it is red on the default branch too), don't push;
-            comment on the PR explaining what is failing and why.
+          plugin_marketplaces: ${{ github.workspace }}/.factory
+          plugins: factory@tone-zone
+          prompt: /factory:fix-ci ship ${{ runner.temp }}/ci-failure.log
           claude_args: |
             --model ${{ inputs.model }}
             --max-turns ${{ inputs.max_turns }}
-            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh run view:*),Bash(cat:*),Bash(ls:*),Bash(tail:*)"
+            --allowedTools "${{ steps.factory.outputs.allowed_tools }}"

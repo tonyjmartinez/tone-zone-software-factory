@@ -1,0 +1,39 @@
+# Stands in for anthropics/claude-code-action during tests/gha.sh: records what the workflow
+# would hand to Claude and checks the plugin it points at is loadable.
+name: claude-code-action stub
+inputs:
+  claude_code_oauth_token: {required: false}
+  anthropic_api_key: {required: false}
+  allowed_bots: {required: false}
+  plugin_marketplaces: {required: false}
+  plugins: {required: false}
+  prompt: {required: false}
+  claude_args: {required: false}
+  use_sticky_comment: {required: false}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PROMPT: ${{ inputs.prompt }}
+        ARGS: ${{ inputs.claude_args }}
+        MARKET: ${{ inputs.plugin_marketplaces }}
+        PLUGINS: ${{ inputs.plugins }}
+      run: |
+        echo "STUB prompt=[$PROMPT]"
+        echo "STUB mode=$([ -n "$PROMPT" ] && echo agent || echo tag)"
+        echo "STUB plugins=[$PLUGINS] marketplace=[$MARKET]"
+        printf '%s\n' "$ARGS" | sed 's/^/STUB arg: /'
+        fail() { echo "STUB FAIL: $*"; exit 1; }
+        [ -f "$MARKET/.claude-plugin/marketplace.json" ] || fail "no marketplace.json at $MARKET"
+        name=$(sed -n 's/.*"name": *"\([^"]*\)".*/\1/p' "$MARKET/.claude-plugin/marketplace.json" | head -1)
+        [ "$PLUGINS" = "factory@$name" ] || fail "plugin id $PLUGINS doesn't match marketplace $name"
+        if [ -n "$PROMPT" ]; then
+          cmd=$(printf '%s' "$PROMPT" | sed -n 's|^/factory:\([a-z-]*\).*|\1|p')
+          [ -f "$MARKET/plugin/commands/$cmd.md" ] || fail "prompt names missing command $cmd"
+        fi
+        tools=$(printf '%s\n' "$ARGS" | sed -n 's/^--allowedTools "\(.*\)"$/\1/p')
+        [ -n "$tools" ] || fail "empty --allowedTools"
+        case "$tools" in *"Bash(npm:*)"*) ;; *) fail "allowedTools missing npm: $tools";; esac
+        git check-ignore -q .factory/ || fail ".factory/ is not excluded from git"
+        echo "STUB OK"

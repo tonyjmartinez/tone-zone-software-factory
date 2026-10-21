@@ -1,0 +1,5 @@
+{
+  "name": "factory",
+  "version": "0.1.0",
+  "description": "Software factory commands: implement a task, fix CI, review a PR, with shared standards."
+}

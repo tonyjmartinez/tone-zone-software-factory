@@ -1,13 +1,9 @@
-You are doing a weekly polish pass on this site. Work autonomously; nobody is watching.
+/factory:implement ship Weekly polish: find and ship ONE small, high-value improvement. Nobody is watching this run.
 
-1. If an open PR titled "Polish:" from a previous run exists, stop. Unreviewed work shouldn't pile up.
-2. Read CLAUDE.md and README.md. Install deps, run the check/test/build commands, and browse the built site
-   (use Playwright with the preinstalled Chromium at 360px and 1440px widths; never run `playwright install`).
-3. Make a short list of candidate improvements: broken links, accessibility issues, layout bugs on mobile,
-   outdated or unclear copy, missing metadata (titles, descriptions, Open Graph), slow assets, failing or
-   missing tests for existing logic, outdated dependencies with safe minor/patch updates.
-4. Pick the ONE with the best value for a small diff and do it well. Re-run all checks.
-5. Branch `claude/polish-<slug>`, commit, push, open a PR titled "Polish: <what>" with before/after notes and
-   the rest of your candidate list (so the human can turn any of them into an issue labeled `claude`).
+First: if an open PR titled "Polish:" from an earlier run exists, stop. Unreviewed work shouldn't pile up.
 
-Never push to main. One PR per run. Don't invent facts or biography content.
+Otherwise build the site and screenshot the main pages. Note candidates as you go: broken links, accessibility
+problems, layout bugs at 360px, unclear copy, missing titles/descriptions/Open Graph tags, heavy assets, missing
+tests for existing logic, and safe minor/patch dependency updates. Pick the one with the most value for a small
+diff and do it well. Title the PR "Polish: <what>" and list the other candidates in its Notes, so each can become
+an issue labeled `claude`. Don't invent facts or biography content.

@@ -3,13 +3,21 @@
 Make a change to any side project by writing one sentence. Claude does the work and opens a PR; you review and merge from your phone.
 
 ```
-idea ──► issue labeled `claude` ──► Claude (GitHub Actions) ──► PR + preview ──► CI
-                                          ▲                                       │ red on claude/*
-                                          └────────── Claude fixes it (≤3x) ◄─────┘
+idea ──► issue labeled `claude` ──► /factory:implement ship #N ──► PR + preview ──► CI
+                                          ▲                                        │ red on claude/*
+                                          └──────── /factory:fix-ci ship (≤3x) ◄───┘
 ```
 
-The logic lives here once, as **reusable GitHub workflows**. Each project gets a ~60-line caller file, so
-when you improve the factory, every project picks it up on its next run.
+**The agent is a Claude Code plugin** ([`plugin/`](plugin/)): three commands (`implement`, `fix-ci`, `review`),
+a standards skill, and scripts for verify and screenshots. Every entry point runs those same files:
+
+| Where | How it runs the plugin |
+| --- | --- |
+| GitHub Actions | reusable workflows load it into `claude-code-action` (`plugins: factory@tone-zone`) |
+| Your terminal | `bin/factory run` runs it with `claude -p --plugin-dir plugin/` on a throwaway copy |
+| Claude app / web / scheduled tasks | projects enable it in `.claude/settings.json`, so `/factory:implement` just works |
+
+So a local run tests exactly what GitHub will do, and when you improve the plugin every project gets the change.
 
 | Project | Repo | Stack | CI the factory watches |
 | --- | --- | --- | --- |
@@ -17,75 +25,118 @@ when you improve the factory, every project picks it up on its next run.
 | `tonyjmartinez` | tonyjmartinez/tonyjmartinez | Astro → Cloudflare Workers | factory's generic Node CI (installed) |
 | `agent-vs-agent` | tonyjmartinez/agent-vs-agent | Greenfield, built from `PLAN.md` | factory's generic Node CI (installed) |
 
+## Try it locally first (nothing is committed or pushed)
+
+```sh
+bin/factory run succulents.info "Show the plant count in the plant library header"
+bin/factory run agent-vs-agent --max-turns 150 "Build Phase 0 of PLAN.md"
+bin/factory fix-ci succulents.info --from ../succulents.info path/to/failing-ci.log
+bin/factory review path/to/a/checkout          # reviews its uncommitted changes
+```
+
+`factory run` clones the project (or copies `--from DIR`) into a throwaway folder. It removes the git remote,
+adds the factory files the way `factory install` would, and runs `/factory:implement`. Then it prints:
+
+- **the agent's report**: summary, what it verified, open questions, and a `FACTORY_RESULT` line
+- **an independent verify**: the factory re-runs typecheck/check/lint/test/build itself and doesn't trust the agent
+- **a permission check**: a PreToolUse hook (`bin/lib/guard.mjs`) **enforces** the command's `allowed-tools`, so
+  anything GitHub Actions would deny is denied locally too. The transcript is audited again afterwards.
+- **the diff**, turns, time and cost, with paths to the workspace, diff and transcript
+
+Exit code 0 means done, verified, and within permissions.
+
+### What the local test runs showed (Oct 2026, Sonnet)
+
+| Run | Result | Turns | Time | API-equivalent cost |
+| --- | --- | --- | --- | --- |
+| succulents.info: plant count in library header | done, verify pass | 7 | 38s | $0.09 |
+| tonyjmartinez: Projects section (screenshots at 360/1440 checked) | done, verify pass | 12 | 54s | $0.16 |
+| agent-vs-agent: PLAN.md Phase 0 (Vite + Phaser 4 + Vitest + Playwright) | done, verify + e2e pass | 37 | 3m | $0.37 |
+| succulents.info: fix-ci on an injected sort bug | root cause fixed, no tests touched | 8 | 41s | $0.08 |
+| tonyjmartinez: review of the Projects change | verdict + findings | 11 | 21s | $0.09 |
+
+With `CLAUDE_CODE_OAUTH_TOKEN` these runs come out of your Claude plan's usage, not API billing.
+
+### Testing the factory itself
+
+```sh
+tests/guard.sh                                        # permission guard: allow/deny cases
+tests/gha.sh ../succulents.info "Check and deploy"   # GitHub workflows under `act` (needs Docker)
+```
+
+`tests/gha.sh` runs the real caller and reusable workflows with [act](https://github.com/nektos/act). A stub
+replaces `claude-code-action` and asserts what it was handed: agent or tag mode, the prompt, the plugin, the
+allowlist, and that `.factory/` is git-ignored. It covers labeled and @claude issues, PR comments with and without
+@claude, CI failures on `claude/*` versus `main`, the 3-attempt fix budget, and a real run of the generic CI.
+
 ## Setup (about 10 minutes, once)
 
-You need the [GitHub CLI](https://cli.github.com) (`gh auth login`) and Claude Code (`claude`) on your machine.
+You need the [GitHub CLI](https://cli.github.com) (`gh auth login`) and Claude Code (`claude`).
 
-1. **Install the Claude GitHub App** on your repos: <https://github.com/apps/claude>. Claude pushes as the app,
+1. **Merge this branch into `main`.** Projects load the workflows and plugin from `...@main`.
+2. **Keep this repo public**, the simplest option: it holds prompts and workflows, no secrets. If it's private, set
+   Settings → Actions → General → Access → "Accessible from repositories owned by the user", **and** add a
+   `FACTORY_TOKEN` secret (a fine-grained PAT with read access to this repo) to each project, because the
+   workflows check out `plugin/`.
+3. **Install the Claude GitHub App** on your repos: <https://github.com/apps/claude>. Claude pushes as the app,
    which is what makes its pushes trigger CI and preview deploys.
-2. **Make a subscription token**, then store it in every project:
+4. **Make a subscription token** and store it in every project:
    ```sh
-   claude setup-token            # prints a long-lived token tied to your Pro/Max plan
+   claude setup-token            # long-lived token tied to your Pro/Max plan
    bin/factory secret all        # paste it; sets CLAUDE_CODE_OAUTH_TOKEN on each repo
    ```
-3. **If this repo is private**, let the projects call its workflows: this repo's
-   Settings → Actions → General → Access → "Accessible from repositories owned by the user".
-4. **Wire each project in** (opens a PR per repo; merge them):
+5. **Wire each project in.** This opens one PR per repo; merge them:
    ```sh
    bin/factory install succulents.info
    bin/factory install tonyjmartinez
    bin/factory install agent-vs-agent
-   bin/factory doctor                # everything should say ok
+   bin/factory doctor
    ```
 
-Add `alias factory=~/path/to/tone-zone-software-factory/bin/factory` to your shell rc for the rest.
+Add `alias factory=~/path/to/tone-zone-software-factory/bin/factory` to your shell rc.
 
 ## Using it
 
-**From the terminal**
-
-```sh
-factory task succulents.info "Add a 'Pet safe' filter to the plant library"
-factory task tonyjmartinez "Add a Projects section linking succulents.info and agent-vs-agent"
-factory status                      # Claude's open issues and PRs everywhere
-```
-
-**From your phone (GitHub app)**: open an issue and add the `claude` label, or put `@claude` in it. On any PR,
-comment `@claude make the button bigger on mobile` and it pushes to that PR.
-
-**From the Claude app**: start a Claude Code session on the repo and just ask. The installed
-`.claude/hooks/session-start.sh` installs dependencies first, so it can test immediately.
-
-**While you sleep**: scheduled cloud tasks in [`routines/`](routines/) build the next `PLAN.md` phase of
-agent-vs-agent nightly, do a weekly polish pass on the sites, and turn rough `idea` issues into ready `claude` tasks.
+- **Terminal:** `factory task succulents.info "Add a 'Pet safe' filter to the plant library"` files a
+  `claude`-labeled issue, and the PR follows. `factory status` lists Claude's open issues and PRs everywhere.
+- **Phone (GitHub app):** open an issue and add the `claude` label, or put `@claude` in it. Claude comments
+  "On it" with a link to the run. On a PR, comment `@claude make the button bigger on mobile`.
+- **Claude app:** in a Claude Code session on the repo, run `/factory:implement ship <what you want>`.
+- **While you sleep:** [`routines/`](routines/) has scheduled-task prompts. One builds the next agent-vs-agent
+  phase nightly, one does a weekly polish pass on the sites, and one turns rough `idea` issues into `claude` tasks.
 
 ## What's in here
 
 | Path | What it is |
 | --- | --- |
-| `.github/workflows/claude.yml` | Reusable: implement `claude`-labeled issues, answer `@claude` on issues and PRs |
-| `.github/workflows/claude-fix-ci.yml` | Reusable: fix red CI on `claude/*` branches, max 3 attempts per branch |
-| `.github/workflows/claude-review.yml` | Reusable, optional: short automatic PR review (commented out in projects) |
-| `.github/workflows/ci-node.yml` | Reusable: generic Node CI running whichever of typecheck/check/lint/test/build exist |
-| `templates/` | What `factory install` copies into a project: caller workflows, CLAUDE.md, `.claude/` settings and hook |
+| `plugin/commands/implement.md` | `/factory:implement [ship] <task or #issue>`: implement, verify, screenshot; with `ship`, branch + PR |
+| `plugin/commands/fix-ci.md` | `/factory:fix-ci [ship] <log>`: root-cause a CI failure; with `ship`, push the fix |
+| `plugin/commands/review.md` | `/factory:review [<pr>]`: read-only review against CLAUDE.md |
+| `plugin/skills/factory-standards/` | Shared rules: small changes, edit with tools, verify for real, the report format |
+| `plugin/scripts/verify.sh` | What "green" means: typecheck/check/lint/test/build, whichever exist (also the generic CI) |
+| `plugin/scripts/screenshot.sh` | Serves `dist/` and screenshots pages at 360px and 1440px for Claude to look at |
+| `.github/workflows/` | Reusable workflows: `claude.yml`, `claude-fix-ci.yml`, `claude-review.yml` (optional), `ci-node.yml` |
+| `templates/` | What `factory install` adds to a project: caller workflows, CLAUDE.md, `.claude/` settings + hook |
 | `projects/<alias>/` | Per-project config (`project.env`) and the CLAUDE.md seeded into that repo |
 | `routines/` | Prompts for scheduled Claude Code cloud tasks |
-| `bin/factory` | The CLI: `add`, `install`, `secret`, `doctor`, `task`, `status`, `list` |
+| `bin/factory` | CLI: `run`, `fix-ci`, `review`, `install`, `secret`, `doctor`, `task`, `status`, `add`, `list` |
+| `bin/lib/` | `allow.mjs` (permission model), `guard.mjs` (enforcing hook), `report.mjs` (run report + audit) |
+| `tests/` | `guard.sh` and `gha.sh` (above) |
 
-Add another project with `factory add <alias> <owner/repo>`, drop a `CLAUDE.md` in `projects/<alias>/`, then
-`factory install <alias>`.
+To add a project, run `factory add <alias> <owner/repo>`, optionally put a `CLAUDE.md` in `projects/<alias>/`, then run
+`factory run <alias> "something small"` to see how the agent does before you `factory install` it.
 
 ## Keeping it cheap
 
-- **Subscription, not API**: `CLAUDE_CODE_OAUTH_TOKEN` bills runs against your Claude plan's usage limits
-  instead of per-token API pricing. To use an API key instead, set `ANTHROPIC_API_KEY` as the secret.
-- **Sonnet by default**: pass `model: opus` in a project's `factory.yml` for harder work.
-- **Hard caps**: `--max-turns` (80 per task, 40 per CI fix), a 60-minute job timeout, 3 CI-fix attempts per
-  branch, and one run per issue/PR at a time.
-- **Actions minutes**: free on public repos; private repos get 2,000 free minutes a month. A typical task
-  run takes 5–15 minutes. Routines run in Anthropic's cloud and use no Actions minutes.
-- **Only you can trigger it**: claude-code-action ignores users without write access, and the auto-review is
-  off until you uncomment it.
+- **Subscription, not API:** `CLAUDE_CODE_OAUTH_TOKEN` bills runs against your Claude plan. Use `ANTHROPIC_API_KEY`
+  instead if you prefer per-token billing.
+- **Sonnet by default.** Set `model: opus` in a project's `factory.yml` for harder work.
+- **Hard caps:** `--max-turns` is 80 per task and 40 per CI fix. There's a 60-minute job timeout, 3 CI-fix attempts
+  per branch, and one run per issue or PR at a time.
+- **Actions minutes:** free on public repos. Private repos get 2,000 free minutes a month, and a typical run takes 2–10
+  minutes. Routines run in Anthropic's cloud and use no Actions minutes.
+- **Only you can trigger it:** claude-code-action ignores users without write access and bot accounts. The automatic
+  review stays off until you uncomment it.
 
 ## Tuning a project
 
@@ -96,9 +147,9 @@ with:
   model: sonnet            # or opus / haiku / a full model ID
   max_turns: 80
   setup: "npm ci"          # runs before Claude starts
-  extra_allowed_tools: "Bash(npx playwright test:*)"
-  extra_instructions: "Always attach a 360px screenshot to UI PRs."   # avoid double quotes
+  factory_ref: main        # pin the plugin to a tag or SHA if you want
   allowed_bots: ""         # set to "claude" if routines label issues as the Claude bot and runs don't start
 ```
 
-Project-specific rules belong in that repo's `CLAUDE.md`; every run reads it first.
+Project-specific rules belong in that repo's `CLAUDE.md`. To change what the agent may do everywhere, edit the
+`allowed-tools` line in `plugin/commands/*.md`. GitHub, the local guard and the audit all read it from there.

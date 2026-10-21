@@ -1,0 +1,11 @@
+{
+  "name": "tone-zone",
+  "owner": { "name": "Tony Martinez" },
+  "plugins": [
+    {
+      "name": "factory",
+      "source": "./plugin",
+      "description": "Software factory commands: implement a task, fix CI, review a PR, with shared standards."
+    }
+  ]
+}

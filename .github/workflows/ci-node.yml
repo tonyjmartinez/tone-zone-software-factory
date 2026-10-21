@@ -1,5 +1,6 @@
-# Reusable: generic CI for Node projects that don't have their own. Runs whichever of
-# `typecheck`, `check`, `lint`, `test`, `build` exist in package.json. Projects with their own CI keep it.
+# Reusable: generic CI for Node projects that don't have their own. Runs the factory's
+# plugin/scripts/verify.sh, the same script Claude and `bin/factory run` use, so "green" means
+# the same thing everywhere. Projects with their own CI keep it.
 name: Factory / Node CI
 
 on:
@@ -8,6 +9,9 @@ on:
       node_version:
         type: string
         default: "22"
+      factory_ref:
+        type: string
+        default: main
 
 jobs:
   ci:
@@ -17,11 +21,16 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+      - name: Load the factory scripts
+        uses: actions/checkout@v6
+        with:
+          repository: tonyjmartinez/tone-zone-software-factory
+          ref: ${{ inputs.factory_ref }}
+          path: .factory
+          token: ${{ secrets.FACTORY_TOKEN || github.token }}
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ inputs.node_version }}
-      - name: Install, check, test, build
-        run: |
-          if [ ! -f package.json ]; then echo "::notice::No package.json yet; nothing to check."; exit 0; fi
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
-          for s in typecheck check lint test build; do npm run "$s" --if-present; done
+      - name: Install, typecheck, check, lint, test, build
+        run: bash .factory/plugin/scripts/verify.sh .
