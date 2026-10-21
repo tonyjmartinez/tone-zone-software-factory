@@ -3,10 +3,10 @@
 A software factory for Tony's side projects: a Claude Code plugin (`plugin/`), reusable GitHub workflows, and the
 `bin/factory` CLI.
 
-**Validate (run before every PR):** `tests/validate.sh` (until it lands: the checks in `BACKLOG.md` "Single fail-closed gate")
+**Validate (run before every PR):** `tests/validate.sh`. Quote its last line, `VALIDATE: PASS`, in the PR.
 
 - `README.md`: what it is and how to run it
-- `BACKLOG.md`: the plan; the nightly builder takes the first unchecked item
+- `BACKLOG.md`: the plan; the Night shift takes the first unchecked item
 - `docs/principles/`: one page each, read the ones that apply
 - `docs/decisions/`: ADRs; check before reopening a settled question
 

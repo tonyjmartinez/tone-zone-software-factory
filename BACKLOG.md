@@ -15,14 +15,6 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 
 ## Now
 
-- [ ] **Single fail-closed gate**: add `tests/validate.sh` (and `npm run validate` only if a package.json is added) that:
-  - runs `tests/guard.sh`, actionlint on `.github/workflows` and the rendered templates, `bash -n` on every script,
-    and `node --check` on every `.mjs`;
-  - runs `tests/gha.sh` only when Docker is available, and otherwise prints a clear SKIPPED line;
-  - prints one verdict line, `VALIDATE: PASS` or `VALIDATE: FAIL <step>`;
-  - fails closed when a tool is missing: exit 2 with `MISCONFIGURED`.
-
-  Install actionlint with `go install github.com/rhysd/actionlint/cmd/actionlint@latest` if it's missing.
 - [ ] **ADRs**: add `docs/decisions/` with short ADRs:
   - 0001: the agent is a Claude Code plugin, and every entry point runs the same command files;
   - 0002: no auto-merge yet, with the risk tiers we'd use if Tony grants merge authority later;
@@ -79,3 +71,4 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 <!-- The nightly builder moves finished items here with the date and PR link. -->
 
 - [x] 2026-10-21 **Router CLAUDE.md for this repo**: 18-line router, 6 principles in `docs/principles/`, `docs/decisions/README.md` stub. CLAUDE.md points at `tests/validate.sh`, which the next item creates.
+- [x] 2026-10-21 **Single fail-closed gate**: `tests/validate.sh` runs syntax, JSON, guard, actionlint (workflows + rendered templates), project/routine checks, and `tests/gha.sh` when `VALIDATE_GHA_PROJECT` is set; one verdict line; `MISCONFIGURED` exit 2 on a missing tool. CI runs it.
