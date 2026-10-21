@@ -8,8 +8,8 @@ It does one unit of work per registered project. Model and turn cap come from ea
 | Project | Routine | Model | Max turns |
 | --- | --- | --- | --- |
 | agent-vs-agent | build-next-phase | Sonnet | 100 |
-| succulents.info | polish | Sonnet | 40 |
-| tonyjmartinez | polish | Sonnet | 40 |
+| succulents.info | polish | **Haiku** | 40 |
+| tonyjmartinez | polish | **Haiku** | 40 |
 | tone-zone-software-factory | backlog | Sonnet | 80 |
 
 ## Why it's cheap
@@ -23,10 +23,22 @@ It does one unit of work per registered project. Model and turn cap come from ea
 - **Measured.** At API prices, local test runs on Sonnet cost $0.08–$0.37 per run (see README). A full night of all four
   is roughly $1.
 
+## Haiku vs Sonnet, measured
+
+Same polish routine on succulents.info (`bin/factory night succulents.info --trial`), Oct 21 2026:
+
+| Model | Result | Turns | Time | API-equivalent cost |
+| --- | --- | --- | --- | --- |
+| Sonnet 5.5 | done, verified (safe dependency bumps) | 21 | 111s | $0.14 |
+| Haiku 5.5 | done, verified (added missing twitter:title/description), checked 6 pages at 360px | 31 | 130s | **$0.01** |
+
+Haiku tried two blocked shell commands, was denied, and switched to allowed tools; GitHub would deny them the same way.
+Polish moved to Haiku. Plan-driven builds (agent-vs-agent phases, the factory backlog) stay on Sonnet.
+
 ## Next savings, in order
 
-1. **Model tiering.** Use Haiku for read-only work (review, triage, digest) and Sonnet for implement and fix-ci. Before
-   switching, run the same tasks with `bin/factory run --model haiku` and compare: done rate, verify pass, and cost.
+1. **More Haiku.** Polish already runs on Haiku (above). Try it next for review and triage, comparing with
+   `bin/factory run --model haiku`.
 2. **Skip idle repos.** A polish run should stop if the default branch has had no commits since the last polish PR
    merged.
 3. **Weekly polish.** Once the backlog of obvious fixes is gone, move the site polish runs to weekly.
