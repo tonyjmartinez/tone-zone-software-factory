@@ -342,7 +342,8 @@ cmd_review() {
 }
 
 # One night's unit of work for a project: its NIGHTLY routine (routines/<name>.md) in ship mode.
-# Back-pressure: skips while a previous claude/night-* PR there is still open, so unreviewed work
+# Back-pressure: skips while a previous factory PR (claude/night-*, or the older claude/polish-* and
+# claude/phase-* names) is still open there, so unreviewed work
 # never piles up and a waiting night costs nothing. --trial runs it locally without pushing.
 cmd_night() {
   [ $# -ge 1 ] || die "usage: factory night <alias> [--trial] [--from DIR] [--model M] [--max-turns N]"
@@ -357,7 +358,7 @@ cmd_night() {
   if [ -z "$trial" ]; then
     local open
     open=$(gh pr list -R "$REPO" --state open --json headRefName \
-      --jq '[.[] | select(.headRefName | startswith("claude/night-"))] | length') || die "$alias: can't list PRs on $REPO"
+      --jq '[.[] | select(.headRefName | test("^claude/(night|polish|phase)-"))] | length') || die "$alias: can't list PRs on $REPO"
     if [ "$open" -gt 0 ]; then
       info "$alias: $open night-shift PR(s) still open on $REPO; waiting for review"
       return 0

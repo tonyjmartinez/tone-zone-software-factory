@@ -13,8 +13,8 @@ Nobody is watching. Work autonomously and finish properly.
    - Run `git fetch origin`.
    - Check out the default branch and reset it to `origin/<default>`.
    - Discard any leftover local changes.
-3. **Back-pressure.** If `REPO` has an open PR whose head branch starts with `claude/night-`, stop. Reply
-   `waiting for review: <PR URL>`.
+3. **Back-pressure.** If `REPO` has an open PR whose head branch starts with `claude/night-`, `claude/polish-` or
+   `claude/phase-` (the factory's PRs), stop. Reply `waiting for review: <PR URL>`.
 4. **Do the work.** Read `/tmp/factory/plugin/commands/implement.md` and
    `/tmp/factory/plugin/skills/factory-standards/SKILL.md` and follow them in **ship** mode, treating
    `${CLAUDE_PLUGIN_ROOT}` as `/tmp/factory/plugin`. The request is `/tmp/factory/routines/<NIGHTLY>.md`, without its
