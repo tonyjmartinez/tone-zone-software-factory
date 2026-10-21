@@ -63,6 +63,12 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
   registered projects: PRs opened and their CI state, friction filed, decisions waiting on Tony. It posts as one
   comment on the factory's rolling nightly PR.
 
+- [ ] **Model tiering experiment** (see `docs/cost-plan.md`):
+  - Run the same 3 small tasks with `bin/factory run --model haiku` and `--model sonnet` on a clone of
+    tonyjmartinez/tonyjmartinez.
+  - Record the done rate, verify pass, turns and cost in `docs/cost-plan.md`.
+  - If Haiku holds up for review, default `/factory:review` and the review workflow to haiku.
+
 ## Later (needs Tony)
 
 - [ ] Decide merge authority per risk tier (ADR 0002).
