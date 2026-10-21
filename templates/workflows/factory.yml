@@ -1,0 +1,59 @@
+# Software factory hookup. Installed by tone-zone-software-factory (bin/factory install).
+# All logic lives in the factory repo, so improvements there reach every project.
+#
+#   Label an issue `claude` (or write @claude in it)  -> Claude implements it and opens a PR
+#   Comment @claude on a PR                           -> Claude changes the PR
+#   CI fails on a claude/* branch                     -> Claude fixes it (max 3 tries)
+name: Factory
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  workflow_run:
+    workflows: ["__CI_WORKFLOW__"]
+    types: [completed]
+  # pull_request:                       # uncomment to enable automatic reviews (see `review` job)
+  #   types: [opened, ready_for_review]
+
+jobs:
+  claude:
+    if: github.event_name != 'workflow_run' && github.event_name != 'pull_request'
+    uses: tonyjmartinez/tone-zone-software-factory/.github/workflows/claude.yml@main
+    secrets: inherit
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    with:
+      model: sonnet
+      setup: "__SETUP__"
+
+  fix-ci:
+    if: github.event_name == 'workflow_run'
+    uses: tonyjmartinez/tone-zone-software-factory/.github/workflows/claude-fix-ci.yml@main
+    secrets: inherit
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    with:
+      setup: "__SETUP__"
+
+  # review:
+  #   if: github.event_name == 'pull_request'
+  #   uses: tonyjmartinez/tone-zone-software-factory/.github/workflows/claude-review.yml@main
+  #   secrets: inherit
+  #   permissions:
+  #     contents: read
+  #     pull-requests: write
+  #     id-token: write

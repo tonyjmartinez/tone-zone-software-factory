@@ -1,0 +1,19 @@
+# Installed by tone-zone-software-factory for projects without their own CI.
+# The Factory workflow watches this one by name ("CI") to auto-fix Claude's branches.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: tonyjmartinez/tone-zone-software-factory/.github/workflows/ci-node.yml@main
+    permissions:
+      contents: read

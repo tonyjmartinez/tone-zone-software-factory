@@ -1,0 +1,102 @@
+# Reusable: when CI fails on a branch Claude created (claude/*), Claude reads the logs,
+# fixes the branch, and pushes. Capped at `max_attempts` fix commits per branch so a
+# stubborn failure can't burn your usage in a loop.
+#
+# Caller wires it to `workflow_run` on the project's CI workflow (see templates/workflows/factory.yml).
+name: Factory / Fix CI
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        type: string
+        default: sonnet
+      max_turns:
+        type: number
+        default: 40
+      max_attempts:
+        type: number
+        default: 3
+      setup:
+        type: string
+        default: "if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi"
+      node_version:
+        type: string
+        default: "22"
+
+jobs:
+  fix:
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      startsWith(github.event.workflow_run.head_branch, 'claude/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: factory-fix-ci-${{ github.repository }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 50
+
+      - name: Check attempt budget
+        id: budget
+        env:
+          MAX: ${{ inputs.max_attempts }}
+        run: |
+          # claude/* branches are short-lived, so the last 50 commits cover the whole branch.
+          n=$(git log -50 --format=%B | grep -c '\[factory-fix-ci\]' || true)
+          echo "attempts=$n" >> "$GITHUB_OUTPUT"
+          if [ "$n" -ge "$MAX" ]; then
+            echo "::warning::CI fix budget spent ($n/$MAX) on this branch; leaving it for a human."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect failing logs
+        if: steps.budget.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed | tail -n 400 > "$RUNNER_TEMP/ci-failure.log" || true
+          wc -l "$RUNNER_TEMP/ci-failure.log"
+
+      - uses: actions/setup-node@v6
+        if: steps.budget.outputs.go == 'true' && hashFiles('package.json') != ''
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Project setup
+        if: steps.budget.outputs.go == 'true' && inputs.setup != ''
+        run: ${{ inputs.setup }}
+
+      - uses: anthropics/claude-code-action@v1
+        if: steps.budget.outputs.go == 'true'
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            CI failed on branch `${{ github.event.workflow_run.head_branch }}` in ${{ github.repository }}.
+            Failed run: ${{ github.event.workflow_run.html_url }}
+            The tail of the failing job logs is in `${{ runner.temp }}/ci-failure.log`. Read it first.
+
+            Read CLAUDE.md, reproduce the failure locally with the project's commands, find the root cause,
+            and fix it with the smallest correct change. Never skip, delete, or weaken a test to get green.
+            Re-run the failing command until it passes, then commit with a message ending in
+            `[factory-fix-ci]` and `git push origin HEAD:${{ github.event.workflow_run.head_branch }}`.
+            If the failure is unrelated to this branch (e.g. it is red on the default branch too), don't push;
+            comment on the PR explaining what is failing and why.
+          claude_args: |
+            --model ${{ inputs.model }}
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh run view:*),Bash(cat:*),Bash(ls:*),Bash(tail:*)"

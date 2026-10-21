@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# factory: drive Claude across your side projects from the terminal.
+#
+#   factory add <alias> <owner/repo>       register a project (writes projects/<alias>/project.env)
+#   factory install <alias>                open a PR that wires the project into the factory
+#   factory secret <alias|all>             store CLAUDE_CODE_OAUTH_TOKEN as a repo secret
+#   factory doctor <alias|all>             check secret, label, and workflows are in place
+#   factory task <alias> "what to do" [details]   file an issue Claude picks up and turns into a PR
+#   factory status [alias]                 Claude's open issues and PRs across projects
+#   factory list                           registered projects
+#
+# Needs: gh (logged in), git. `alias` is a directory name under projects/, or owner/repo.
+set -euo pipefail
+
+FACTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECTS_DIR="$FACTORY_DIR/projects"
+TEMPLATES_DIR="$FACTORY_DIR/templates"
+LABEL=claude
+
+die() { echo "factory: $*" >&2; exit 1; }
+info() { echo "==> $*"; }
+
+aliases() { for d in "$PROJECTS_DIR"/*/; do [ -f "$d/project.env" ] && basename "$d"; done; }
+
+# Sets REPO, CI_WORKFLOW, SETUP, INSTALL_CI, ALIAS, PROJECT_DIR for an alias or owner/repo.
+load() {
+  REPO="" CI_WORKFLOW="CI" SETUP="" INSTALL_CI="" ALIAS="$1" PROJECT_DIR=""
+  if [ -f "$PROJECTS_DIR/$1/project.env" ]; then
+    PROJECT_DIR="$PROJECTS_DIR/$1"
+    # shellcheck disable=SC1091
+    . "$PROJECT_DIR/project.env"
+  elif [[ "$1" == */* ]]; then
+    REPO="$1" ALIAS="${1#*/}" INSTALL_CI=1
+  else
+    die "unknown project '$1' (known: $(aliases | tr '\n' ' '))"
+  fi
+  [ -n "$REPO" ] || die "$1: project.env has no REPO"
+}
+
+targets() { if [ "${1:-all}" = all ]; then aliases; else echo "$1"; fi; }
+
+cmd_list() {
+  for a in $(aliases); do load "$a"; printf '%-20s %s\n' "$a" "$REPO"; done
+}
+
+cmd_add() {
+  [ $# -eq 2 ] || die "usage: factory add <alias> <owner/repo>"
+  local dir="$PROJECTS_DIR/$1"
+  [ -e "$dir" ] && die "$dir already exists"
+  gh repo view "$2" --json name >/dev/null || die "can't see $2 with gh"
+  mkdir -p "$dir"
+  local ci="CI" install_ci=1
+  if gh api "repos/$2/contents/.github/workflows" >/dev/null 2>&1; then
+    echo "Existing workflows in $2:"
+    gh api "repos/$2/actions/workflows" --jq '.workflows[] | "  - " + .name'
+    read -r -p "Name of its CI workflow (blank to install the factory's generic CI): " ci
+    if [ -n "$ci" ]; then install_ci=""; else ci="CI"; fi
+  fi
+  {
+    echo "REPO=$2"
+    echo "CI_WORKFLOW=\"$ci\""
+    [ -n "$install_ci" ] && echo "INSTALL_CI=1"
+  } > "$dir/project.env"
+  info "wrote $dir/project.env. Optionally add $dir/CLAUDE.md, then: factory install $1"
+}
+
+cmd_install() {
+  [ $# -eq 1 ] || die "usage: factory install <alias>"
+  load "$1"
+  WORK="$(mktemp -d)"
+  trap 'rm -rf "$WORK"' EXIT
+  info "cloning $REPO"
+  gh repo clone "$REPO" "$WORK/repo" -- --depth 1 -q
+  cd "$WORK/repo"
+  git checkout -q -b factory/install
+
+  mkdir -p .github/workflows
+  sed -e "s|__CI_WORKFLOW__|$CI_WORKFLOW|" "$TEMPLATES_DIR/workflows/factory.yml" > .github/workflows/factory.yml
+  if [ -n "$SETUP" ]; then
+    sed -i.bak -e "s|__SETUP__|$SETUP|" .github/workflows/factory.yml
+  else
+    # Use the reusable workflow's default setup (npm ci when there's a lockfile).
+    sed -i.bak -e '/__SETUP__/d' .github/workflows/factory.yml
+  fi
+  rm -f .github/workflows/factory.yml.bak
+
+  if [ -n "$INSTALL_CI" ] && [ ! -f .github/workflows/ci.yml ]; then
+    cp "$TEMPLATES_DIR/workflows/ci.yml" .github/workflows/ci.yml
+  fi
+
+  if [ ! -f CLAUDE.md ]; then
+    if [ -n "$PROJECT_DIR" ] && [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
+      cp "$PROJECT_DIR/CLAUDE.md" CLAUDE.md
+    else
+      sed -e "s|__NAME__|${REPO#*/}|" "$TEMPLATES_DIR/CLAUDE.md" > CLAUDE.md
+    fi
+  fi
+
+  mkdir -p .claude/hooks
+  [ -f .claude/settings.json ] || cp "$TEMPLATES_DIR/claude/settings.json" .claude/settings.json
+  [ -f .claude/hooks/session-start.sh ] || cp "$TEMPLATES_DIR/claude/hooks/session-start.sh" .claude/hooks/session-start.sh
+  chmod +x .claude/hooks/session-start.sh
+
+  git add -A
+  if git diff --cached --quiet; then
+    info "$REPO already has everything; nothing to commit"
+  else
+    git commit -q -m "Wire into tone-zone-software-factory
+
+Adds the Factory workflow (Claude implements issues labeled '$LABEL', answers @claude,
+and fixes CI on its own branches), CLAUDE.md, and a cloud-session setup hook."
+    git push -q -u origin factory/install
+    gh pr create -R "$REPO" --head factory/install --title "Wire into the software factory" --body "$(cat <<EOF
+Installed by [tone-zone-software-factory](https://github.com/tonyjmartinez/tone-zone-software-factory).
+
+- \`.github/workflows/factory.yml\`: label an issue \`$LABEL\` (or mention @claude) and Claude opens a PR; comment @claude on a PR to change it; when **$CI_WORKFLOW** fails on a \`claude/*\` branch, Claude fixes it (3 tries max).
+$( [ -f .github/workflows/ci.yml ] && echo "- \`.github/workflows/ci.yml\`: generic Node CI (typecheck/check/lint/test/build, whichever exist)." )
+- \`CLAUDE.md\`: what every Claude run reads first. Edit freely.
+- \`.claude/\`: installs deps at the start of Claude Code cloud sessions so web/mobile/scheduled runs can test immediately.
+
+Before merging: make sure the \`CLAUDE_CODE_OAUTH_TOKEN\` secret exists (\`factory doctor ${ALIAS}\`).
+EOF
+)"
+  fi
+
+  gh label create "$LABEL" -R "$REPO" --color D97757 --description "Claude implements this and opens a PR" --force >/dev/null
+  info "label '$LABEL' ready"
+  cd - >/dev/null
+  cmd_doctor "$1" || true
+}
+
+cmd_secret() {
+  [ $# -eq 1 ] || die "usage: factory secret <alias|all>"
+  local token="${CLAUDE_CODE_OAUTH_TOKEN:-}"
+  if [ -z "$token" ]; then
+    echo "Paste the token from \`claude setup-token\` (uses your Claude subscription, not API billing):"
+    read -r -s token
+    echo
+  fi
+  [ -n "$token" ] || die "no token"
+  for a in $(targets "$1"); do
+    load "$a"
+    printf '%s' "$token" | gh secret set CLAUDE_CODE_OAUTH_TOKEN -R "$REPO"
+    info "$REPO: secret set"
+  done
+}
+
+cmd_doctor() {
+  local rc=0
+  for a in $(targets "${1:-all}"); do
+    load "$a"
+    echo "$a ($REPO)"
+    if gh secret list -R "$REPO" 2>/dev/null | grep -qE '^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)\b'; then
+      echo "  ok   Claude credential secret"
+    else
+      echo "  MISS Claude credential secret  -> claude setup-token, then: factory secret $a"; rc=1
+    fi
+    if gh label list -R "$REPO" --search "$LABEL" --json name --jq '.[].name' 2>/dev/null | grep -qx "$LABEL"; then
+      echo "  ok   '$LABEL' label"
+    else
+      echo "  MISS '$LABEL' label            -> factory install $a"; rc=1
+    fi
+    if gh api "repos/$REPO/contents/.github/workflows/factory.yml" >/dev/null 2>&1; then
+      echo "  ok   factory.yml on default branch"
+    else
+      echo "  MISS factory.yml on default branch -> merge the 'Wire into the software factory' PR"; rc=1
+    fi
+    if gh api "repos/$REPO/installation" >/dev/null 2>&1; then
+      echo "  ok   a GitHub App is installed"
+    else
+      echo "  ?    Claude GitHub App: install at https://github.com/apps/claude so Claude's pushes trigger CI"
+    fi
+  done
+  return $rc
+}
+
+cmd_task() {
+  [ $# -ge 2 ] || die "usage: factory task <alias> \"what to do\" [details]"
+  load "$1"
+  local title="$2" body="${3:-$2}"
+  gh issue create -R "$REPO" --title "$title" --body "$body" --label "$LABEL"
+}
+
+cmd_status() {
+  for a in $(targets "${1:-all}"); do
+    load "$a"
+    echo "── $a ($REPO)"
+    gh issue list -R "$REPO" --label "$LABEL" --state open \
+      --json number,title --jq '.[] | "  issue #\(.number)  \(.title)"' 2>/dev/null || true
+    gh pr list -R "$REPO" --state open --search "head:claude/" \
+      --json number,title,url --jq '.[] | "  PR    #\(.number)  \(.title)  \(.url)"' 2>/dev/null || true
+  done
+}
+
+main() {
+  command -v gh >/dev/null || die "install the GitHub CLI: https://cli.github.com"
+  local cmd="${1:-help}"; shift || true
+  case "$cmd" in
+    list|ls) cmd_list ;;
+    add) cmd_add "$@" ;;
+    install) cmd_install "$@" ;;
+    secret) cmd_secret "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    task|t) cmd_task "$@" ;;
+    status|st) cmd_status "$@" ;;
+    help|-h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) die "unknown command '$cmd' (try: factory help)" ;;
+  esac
+}
+
+main "$@"

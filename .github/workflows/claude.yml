@@ -1,0 +1,87 @@
+# Reusable: Claude implements issues and answers @claude on issues and PRs.
+#
+# Triggers (decided by the caller's `on:` block, see templates/workflows/factory.yml):
+#   - an issue labeled `claude`               -> implement it and open a PR
+#   - an issue opened with @claude in it       -> same
+#   - an @claude comment on an issue or PR     -> do what the comment asks (pushes to the PR branch on PRs)
+#
+# Only people with write access can trigger it (enforced by claude-code-action).
+name: Factory / Claude
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: "Model alias or ID (sonnet, opus, haiku, or a full claude-* ID)."
+        type: string
+        default: sonnet
+      max_turns:
+        description: "Hard cap on agent turns per run; the main cost lever."
+        type: number
+        default: 80
+      setup:
+        description: "Shell run before Claude starts so it can build and test (empty to skip)."
+        type: string
+        default: "if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi"
+      node_version:
+        type: string
+        default: "22"
+      extra_allowed_tools:
+        description: "Comma-separated extra --allowedTools entries for this project."
+        type: string
+        default: ""
+      allowed_bots:
+        description: "Bot accounts allowed to trigger runs (e.g. claude), for routines that label issues as a bot."
+        type: string
+        default: ""
+      extra_instructions:
+        description: "Appended to Claude's system prompt for this project."
+        type: string
+        default: ""
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'claude') ||
+      (github.event_name == 'issues' && github.event.action == 'opened' &&
+        (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # One run per issue/PR at a time; a newer request waits instead of racing on the same branch.
+    concurrency:
+      group: factory-claude-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 20
+
+      - uses: actions/setup-node@v6
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Project setup
+        if: inputs.setup != ''
+        run: ${{ inputs.setup }}
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_bots: ${{ inputs.allowed_bots }}
+          track_progress: ${{ github.event_name == 'issues' }}
+          claude_args: |
+            --model ${{ inputs.model }}
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*),Bash(ls:*),Bash(cat:*),Bash(mkdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*)${{ inputs.extra_allowed_tools != '' && format(',{0}', inputs.extra_allowed_tools) || '' }}"
+            --append-system-prompt "You are the software factory for this side project. Read CLAUDE.md first and follow it. Keep changes small and focused on the request. Before finishing, run the project's check/test/build commands listed in CLAUDE.md and fix what fails. When working from an issue, commit to your branch and open a pull request with gh pr create whose body starts with 'Closes #<issue number>' and lists what you verified. If the request is ambiguous, make the most sensible choice, note it in the PR, and keep going rather than stopping to ask. ${{ inputs.extra_instructions }}"
