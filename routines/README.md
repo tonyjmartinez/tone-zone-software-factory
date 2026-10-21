@@ -9,6 +9,7 @@ GitHub's issue flow and local `factory run` use, on a fresh clone, and opens a P
 | `build-next-phase.md` | agent-vs-agent | Builds the next unfinished PLAN.md phase, or a slice of it | `claude/night-phase-*` / "Phase n: …" |
 | `polish.md` | succulents.info, tonyjmartinez | Finds and ships one small, high-value improvement | `claude/night-polish-*` / "Polish: …" |
 | `backlog.md` | tone-zone-software-factory | Builds the first unchecked item in BACKLOG.md | `claude/night-backlog-*` / "Factory: …" |
+| `cloud-run.md` | scheduled cloud sessions | Wrapper: one project's NIGHTLY routine, no GitHub secrets needed | same `claude/night-*` |
 | `triage.md` | (manual) | Turns rough `idea` issues into crisp `claude` tasks | n/a |
 
 **Back-pressure.** A project with an open `claude/night-*` PR is skipped until you merge or close that PR. You never
