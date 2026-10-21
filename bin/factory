@@ -13,6 +13,8 @@
 #   factory run <alias|dir> "what to do"   implement on a disposable copy, then audit + verify
 #   factory fix-ci <alias|dir> <log>        fix a failing CI log on a disposable copy
 #   factory review <alias|dir>              review uncommitted changes in a directory
+#   factory night <alias> [--trial]        the project's NIGHTLY routine in ship mode (what the Night shift
+#                                          workflow runs); skips while a claude/night-* PR is still open
 #     options: --from DIR (copy this local checkout instead of cloning), --model M, --max-turns N,
 #              --ship (work on a fresh GitHub clone and let the agent push + open a PR)
 #
@@ -25,13 +27,15 @@ TEMPLATES_DIR="$FACTORY_DIR/templates"
 LABEL=claude
 
 die() { echo "factory: $*" >&2; exit 1; }
+need_gh() { command -v gh >/dev/null || die "install the GitHub CLI: https://cli.github.com"; }
 info() { echo "==> $*"; }
 
 aliases() { for d in "$PROJECTS_DIR"/*/; do [ -f "$d/project.env" ] && basename "$d"; done; }
 
-# Sets REPO, CI_WORKFLOW, SETUP, INSTALL_CI, ALIAS, PROJECT_DIR for an alias or owner/repo.
+# Sets REPO, CI_WORKFLOW, SETUP, INSTALL_CI, ALIAS, PROJECT_DIR and NIGHTLY* for an alias or owner/repo.
 load() {
   REPO="" CI_WORKFLOW="CI" SETUP="" INSTALL_CI="" ALIAS="$1" PROJECT_DIR=""
+  NIGHTLY="" NIGHTLY_MODEL="" NIGHTLY_MAX_TURNS=""
   if [ -f "$PROJECTS_DIR/$1/project.env" ]; then
     PROJECT_DIR="$PROJECTS_DIR/$1"
     # shellcheck disable=SC1091
@@ -245,6 +249,7 @@ agent_run() {
   mkdir -p "$out"
 
   if [ -n "$ship" ]; then
+    need_gh
     [ -n "$REPO" ] || die "--ship needs a registered project or owner/repo"
     info "cloning $REPO (ship mode: the agent will push and open a PR)"
     gh repo clone "$REPO" "$work" -- -q
@@ -252,6 +257,7 @@ agent_run() {
     info "copying $from"
     cp -a "$from" "$work"
   else
+    need_gh
     info "cloning $REPO"
     gh repo clone "$REPO" "$work" -- --depth 1 -q
   fi
@@ -282,19 +288,31 @@ agent_run() {
     --model "$model" --max-turns "$max_turns" \
     --output-format stream-json --verbose > "$out/transcript.jsonl" 2>"$out/claude.stderr" || true
 
+  # FACTORY_QUIET=1 (set by the Night shift workflow) keeps project content out of public CI logs:
+  # only status lines are printed; the full report is in the PR and in $out.
   local rc=0
-  node "$FACTORY_DIR/bin/lib/report.mjs" "$out/transcript.jsonl" "$FACTORY_DIR/plugin/commands/$command.md" || rc=$?
+  if [ -n "${FACTORY_QUIET:-}" ]; then
+    node "$FACTORY_DIR/bin/lib/report.mjs" "$out/transcript.jsonl" "$FACTORY_DIR/plugin/commands/$command.md" > "$out/report.txt" || rc=$?
+    grep -E '^(result|turns|tools|permissions):|^permission gaps' "$out/report.txt" || true
+  else
+    node "$FACTORY_DIR/bin/lib/report.mjs" "$out/transcript.jsonl" "$FACTORY_DIR/plugin/commands/$command.md" || rc=$?
+  fi
 
   echo "──────── independent verify ────────"
   if bash "$FACTORY_DIR/plugin/scripts/verify.sh" "$work" >"$out/verify.log" 2>&1; then
     echo "verify: pass ($(tail -1 "$out/verify.log"))"
   else
-    echo "verify: FAIL (last lines of $out/verify.log):"; tail -15 "$out/verify.log"; [ "$rc" -ne 0 ] || rc=1
+    echo "verify: FAIL"; [ -n "${FACTORY_QUIET:-}" ] || tail -15 "$out/verify.log"; [ "$rc" -ne 0 ] || rc=1
   fi
 
   echo "──────── changes ────────"
   git add -A -N . 2>/dev/null || true
-  git --no-pager diff --stat HEAD | tail -20
+  if [ -n "$ship" ]; then
+    git --no-pager log --oneline "@{u}..HEAD" 2>/dev/null | head -5 || true
+    git --no-pager log --oneline -3
+  else
+    git --no-pager diff --stat HEAD | tail -20
+  fi
   git diff HEAD > "$out/changes.diff" || true
   echo
   info "workspace: $work"
@@ -323,9 +341,50 @@ cmd_review() {
   node "$FACTORY_DIR/bin/lib/report.mjs" "$out" "$FACTORY_DIR/plugin/commands/review.md"
 }
 
+# One night's unit of work for a project: its NIGHTLY routine (routines/<name>.md) in ship mode.
+# Back-pressure: skips while a previous claude/night-* PR there is still open, so unreviewed work
+# never piles up and a waiting night costs nothing. --trial runs it locally without pushing.
+cmd_night() {
+  [ $# -ge 1 ] || die "usage: factory night <alias> [--trial] [--from DIR] [--model M] [--max-turns N]"
+  local alias="$1"; shift
+  load "$alias"
+  [ -n "$NIGHTLY" ] || { info "$alias: no NIGHTLY routine in project.env; nothing to do"; return 0; }
+  local routine="$FACTORY_DIR/routines/$NIGHTLY.md"
+  [ -f "$routine" ] || die "$alias: routine file routines/$NIGHTLY.md not found"
+  local trial="" rest=()
+  for a in "$@"; do if [ "$a" = --trial ]; then trial=1; else rest+=("$a"); fi; done
+
+  if [ -z "$trial" ]; then
+    local open
+    open=$(gh pr list -R "$REPO" --state open --json headRefName \
+      --jq '[.[] | select(.headRefName | startswith("claude/night-"))] | length') || die "$alias: can't list PRs on $REPO"
+    if [ "$open" -gt 0 ]; then
+      info "$alias: $open night-shift PR(s) still open on $REPO; waiting for review"
+      return 0
+    fi
+  fi
+
+  local task; task="$(sed '1s|^/factory:implement ship ||' "$routine")"
+  info "$alias: routine $NIGHTLY${trial:+ (trial: no push)}"
+  local mode=(--ship); [ -z "$trial" ] || mode=()
+  agent_run implement "$alias" ${mode[@]+"${mode[@]}"} --model "${NIGHTLY_MODEL:-sonnet}" \
+    --max-turns "${NIGHTLY_MAX_TURNS:-60}" ${rest[@]+"${rest[@]}"} "$task"
+}
+
+# JSON list of projects with a NIGHTLY routine (all, or just the one named), for the workflow matrix.
+cmd_nightly_projects() {
+  local list=()
+  for a in $(targets "${1:-all}"); do load "$a"; [ -n "$NIGHTLY" ] && list+=("\"$a\""); done
+  local IFS=,; echo "[${list[*]}]"
+}
+
 main() {
-  command -v gh >/dev/null || die "install the GitHub CLI: https://cli.github.com"
   local cmd="${1:-help}"; shift || true
+  case "$cmd" in
+    list|ls|nightly-projects|review|help|-h|--help) ;;
+    run|fix-ci) ;; # need gh only when cloning; checked there
+    *) need_gh ;;
+  esac
   case "$cmd" in
     list|ls) cmd_list ;;
     add) cmd_add "$@" ;;
@@ -337,7 +396,9 @@ main() {
     run) cmd_run "$@" ;;
     fix-ci) cmd_fix_ci "$@" ;;
     review) cmd_review "$@" ;;
-    help|-h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' ;;
+    night) cmd_night "$@" ;;
+    nightly-projects) cmd_nightly_projects "$@" ;;
+    help|-h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) die "unknown command '$cmd' (try: factory help)" ;;
   esac
 }

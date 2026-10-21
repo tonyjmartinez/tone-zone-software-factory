@@ -2,23 +2,23 @@
 
 ## What runs today
 
-| Scheduled task (claude.ai → Scheduled) | Repo | When (UTC) | Model |
-| --- | --- | --- | --- |
-| Factory nightly builder | tone-zone-software-factory | 07:36, 09:36, 11:36 | Sonnet 5.5 |
-| Factory: agent-vs-agent nightly build | agent-vs-agent | 08:12 | Sonnet 5.5 |
-| Factory: succulents.info nightly polish | succulents.info | 08:48 | Sonnet 5.5 |
-| Factory: tonyjmartinez nightly polish | tonyjmartinez | 09:24 | Sonnet 5.5 |
+The **Night shift** workflow (`.github/workflows/night-shift.yml`) runs daily at 08:17 UTC in this repo's GitHub Actions.
+It does one unit of work per registered project. Model and turn cap come from each `projects/<alias>/project.env`:
 
-Each fires into its own Claude Code cloud session with the repo attached. Each run pulls the latest factory from
-this repo, so improvements here reach every project the next night.
+| Project | Routine | Model | Max turns |
+| --- | --- | --- | --- |
+| agent-vs-agent | build-next-phase | Sonnet | 100 |
+| succulents.info | polish | Sonnet | 40 |
+| tonyjmartinez | polish | Sonnet | 40 |
+| tone-zone-software-factory | backlog | Sonnet | 80 |
 
 ## Why it's cheap
 
-- **Subscription, not API.** Cloud sessions and scheduled tasks use your Claude plan's usage. There is no per-token
-  bill and no GitHub Actions minutes.
+- **Subscription, not API.** `CLAUDE_CODE_OAUTH_TOKEN` bills your Claude plan, not per token. This repo is public, so
+  its Actions minutes are free.
 - **Sonnet, not Opus,** for every scheduled run. Opus is only for work you start by hand.
-- **Back-pressure.** Each project keeps at most one unreviewed factory PR. A run that finds one open stops within a
-  turn or two, so unreviewed work never piles up and idle nights cost almost nothing.
+- **Back-pressure.** A project with an open `claude/night-*` PR is skipped before Claude even starts. Unreviewed work
+  never piles up, and a waiting night costs nothing.
 - **Small units.** One backlog item, one phase slice, or one polish fix per run.
 - **Measured.** At API prices, local test runs on Sonnet cost $0.08–$0.37 per run (see README). A full night of all four
   is roughly $1.
@@ -34,6 +34,5 @@ this repo, so improvements here reach every project the next night.
 
 ## Pausing
 
-- Disable a task in claude.ai → Scheduled.
-- Or add `NIGHTLY_PAUSED` to the factory repo, which stops the factory builder.
-- Closing a project's open factory PR without merging makes the next run start over.
+- Remove a project's `NIGHTLY` line to stop that project.
+- Disable the Night shift workflow (Actions → Night shift → ⋯ → Disable) to stop everything.

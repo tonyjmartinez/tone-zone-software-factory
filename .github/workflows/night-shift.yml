@@ -1,0 +1,93 @@
+# Night shift: once a night, every registered project (projects/*/project.env with NIGHTLY=) gets one
+# unit of work from its routine, as a PR on that project. Projects whose previous night-shift PR is
+# still open are skipped. Each project runs `bin/factory night <alias>`, the same code you can run
+# locally (`--trial` to try it without pushing).
+#
+# Setup (once, on this repo only): Settings → Secrets and variables → Actions
+#   CLAUDE_CODE_OAUTH_TOKEN  from `claude setup-token` (bills your Claude plan, not the API)
+#   FACTORY_GH_TOKEN         fine-grained PAT, access to the project repos (and this one) with
+#                            Contents + Pull requests: read & write, Metadata: read
+# Until both exist the workflow runs, posts a notice, and does nothing.
+name: Night shift
+
+on:
+  schedule:
+    - cron: "17 8 * * *" # 08:17 UTC daily
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "One project alias (blank = all)"
+        type: string
+        default: ""
+      trial:
+        description: "Trial: run the agent but don't push or open PRs"
+        type: boolean
+        default: false
+
+concurrency:
+  group: night-shift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.plan.outputs.projects }}
+      ready: ${{ steps.plan.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: plan
+        env:
+          ONLY: ${{ inputs.project }}
+          HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' || secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_GH: ${{ secrets.FACTORY_GH_TOKEN != '' }}
+        run: |
+          projects=$(bin/factory nightly-projects "${ONLY:-all}")
+          echo "projects=$projects" >> "$GITHUB_OUTPUT"
+          echo "Projects tonight: $projects"
+          if [ "$HAS_CLAUDE" = true ] && [ "$HAS_GH" = true ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Night shift is idle: add the CLAUDE_CODE_OAUTH_TOKEN and FACTORY_GH_TOKEN repository secrets."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  night:
+    needs: plan
+    if: needs.plan.outputs.ready == 'true' && needs.plan.outputs.projects != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        project: ${{ fromJSON(needs.plan.outputs.projects) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Git and GitHub auth for the project repos
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
+        run: |
+          gh auth setup-git
+          git config --global user.name "Tone Zone Factory"
+          git config --global user.email "factory@users.noreply.github.com"
+      - name: Night shift for ${{ matrix.project }}
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FACTORY_RUNS_DIR: ${{ runner.temp }}/runs
+          FACTORY_QUIET: "1" # this repo's logs are public; details go in the project's PR
+          PROJECT: ${{ matrix.project }}
+          TRIAL: ${{ inputs.trial }}
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          if [ "$TRIAL" = true ]; then bin/factory night "$PROJECT" --trial; else bin/factory night "$PROJECT"; fi

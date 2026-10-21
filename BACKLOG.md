@@ -1,7 +1,8 @@
 # Factory backlog
 
-The overnight builder ([`routines/factory-nightly.md`](routines/factory-nightly.md)) takes the **first unchecked
-item**, builds it on the `claude/factory-nightly` branch, proves it works, ticks it here, and moves on. Reorder,
+The Night shift ([`routines/backlog.md`](routines/backlog.md)) takes the **first unchecked item** each night, builds
+it, proves it works, ticks it here, and opens a `claude/night-backlog-*` PR. The next item waits until you merge or
+close that PR. Reorder,
 edit or delete items freely; this file is the steering wheel.
 Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent-c-dodds-factory-handoff.md).
 
@@ -10,7 +11,7 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 - No auto-merge: a human merges everything.
 - Reports go to the PR (a comment), not to Discord or Slack.
 
-**To pause the nightly builder**, create a file named `NIGHTLY_PAUSED` at the repo root on `claude/factory-nightly`.
+**To pause it**, remove `NIGHTLY` from `projects/tone-zone-software-factory/project.env`.
 
 ## Now
 

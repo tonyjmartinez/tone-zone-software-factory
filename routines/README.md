@@ -1,24 +1,22 @@
-# Routines: scheduled Claude Code cloud sessions
+# Routines: what the Night shift does on each project
 
-These run as **scheduled tasks in Claude Code on the web** (claude.ai/code → Scheduled, or ask Claude in any
-cloud session to "create a scheduled task"). They use your Claude subscription and Anthropic's cloud
-containers, so they cost **no GitHub Actions minutes and no API billing**. Each run starts a fresh session on
-the repo, does one bounded unit of work, and opens a PR. You review and merge from your phone.
+`.github/workflows/night-shift.yml` runs once a night (08:17 UTC). For every project in `projects/*/project.env` with a
+`NIGHTLY=` line, it runs `bin/factory night <alias>`. That runs `/factory:implement ship <routine>`, the same command
+GitHub's issue flow and local `factory run` use, on a fresh clone, and opens a PR on the project.
 
-| File | Repo | Suggested schedule | What it does |
+| Routine | Used by | What one run does | Branch / PR |
 | --- | --- | --- | --- |
-| `build-next-phase.md` | agent-vs-agent | daily, early morning | Builds the next PLAN.md phase (or the next slice of it) and opens a PR |
-| `polish.md` | succulents.info, tonyjmartinez | weekly | Finds and ships one small, high-value improvement |
-| `triage.md` | any | daily | Turns your rough `idea` issues into crisp `claude`-labeled tasks |
+| `build-next-phase.md` | agent-vs-agent | Builds the next unfinished PLAN.md phase, or a slice of it | `claude/night-phase-*` / "Phase n: …" |
+| `polish.md` | succulents.info, tonyjmartinez | Finds and ships one small, high-value improvement | `claude/night-polish-*` / "Polish: …" |
+| `backlog.md` | tone-zone-software-factory | Builds the first unchecked item in BACKLOG.md | `claude/night-backlog-*` / "Factory: …" |
+| `triage.md` | (manual) | Turns rough `idea` issues into crisp `claude` tasks | n/a |
 
-The two build routines are just `/factory:implement ship <instructions>`. That's the same command GitHub
-Actions runs and `bin/factory run` tests locally. Projects wired in by `factory install` enable the factory plugin
-in `.claude/settings.json`, so it's available in cloud sessions too. Guard rails: one PR per run, never push to
-main, and stop if a previous routine PR is still open, so unreviewed work doesn't pile up.
+**Back-pressure.** A project with an open `claude/night-*` PR is skipped until you merge or close that PR. You never
+have more than one unreviewed night PR per repo, and a waiting night costs nothing.
 
-Try one locally first, without `ship` and without pushing anything:
-`bin/factory run agent-vs-agent "$(sed 's|^/factory:implement ship ||' routines/build-next-phase.md)"`
-
-Create one by pasting the prompt into a scheduled task with the repo attached, or ask Claude in a cloud
-session: "create a daily scheduled task on tonyjmartinez/agent-vs-agent with the prompt in
-routines/build-next-phase.md from tone-zone-software-factory".
+**Try a routine locally first** (no push, no PR): `bin/factory night <alias> --trial [--from <checkout>]`.
+**Run it now on GitHub:** Actions → Night shift → Run workflow (pick one project, optionally as a trial).
+**Change it:**
+- Edit a routine file, or a project's `NIGHTLY`, `NIGHTLY_MODEL` and `NIGHTLY_MAX_TURNS` in its `project.env`.
+- Remove the `NIGHTLY` line to stop one project.
+- Disable the workflow to stop everything.

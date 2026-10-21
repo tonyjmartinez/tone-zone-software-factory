@@ -69,6 +69,23 @@ replaces `claude-code-action` and asserts what it was handed: agent or tag mode,
 allowlist, and that `.factory/` is git-ignored. It covers labeled and @claude issues, PR comments with and without
 @claude, CI failures on `claude/*` versus `main`, the 3-attempt fix budget, and a real run of the generic CI.
 
+## Kick off the Night shift (5 minutes, this repo only)
+
+1. **Claude token:** run `claude setup-token` locally and add the token as the repository secret
+   `CLAUDE_CODE_OAUTH_TOKEN` (Settings → Secrets and variables → Actions).
+2. **GitHub token:** create a fine-grained personal access token (GitHub → Settings → Developer settings).
+   - Repository access: succulents.info, tonyjmartinez, agent-vs-agent and tone-zone-software-factory.
+   - Permissions: Contents read & write, Pull requests read & write, Metadata read.
+
+   Add it as the repository secret `FACTORY_GH_TOKEN`.
+3. **Test one project:** Actions → Night shift → Run workflow, with project `tonyjmartinez` and trial ticked. Trial
+   runs the agent end to end but doesn't push.
+4. **Run it for real:** run it again without trial, or just wait for 08:17 UTC.
+
+Add another project by committing `projects/<alias>/project.env` with `REPO=` and `NIGHTLY=`. No setup is needed in
+the project repo. The `factory install` steps below are optional: they add `@claude` and labeled-issue
+automation inside a project.
+
 ## Setup (about 10 minutes, once)
 
 You need the [GitHub CLI](https://cli.github.com) (`gh auth login`) and Claude Code (`claude`).
@@ -103,7 +120,7 @@ and JSON validity. So you can:
 
 - open an issue here labeled `claude`, or run `factory task tone-zone-software-factory "..."`, and get a PR;
 - comment `@claude` on any PR here;
-- rely on the overnight builder (`routines/factory-nightly.md`) to keep working through `BACKLOG.md`.
+- let the Night shift work through `BACKLOG.md` (`routines/backlog.md`), one PR at a time.
 
 It needs the same one-time setup as a project: the `CLAUDE_CODE_OAUTH_TOKEN` secret on this repo, and the Claude
 GitHub App installed on it.
@@ -115,8 +132,9 @@ GitHub App installed on it.
 - **Phone (GitHub app):** open an issue and add the `claude` label, or put `@claude` in it. Claude comments
   "On it" with a link to the run. On a PR, comment `@claude make the button bigger on mobile`.
 - **Claude app:** in a Claude Code session on the repo, run `/factory:implement ship <what you want>`.
-- **While you sleep:** [`routines/`](routines/) has scheduled-task prompts. One builds the next agent-vs-agent
-  phase nightly, one does a weekly polish pass on the sites, and one turns rough `idea` issues into `claude` tasks.
+- **While you sleep:** the **Night shift** workflow gives every registered project one PR a night (see
+  [`routines/`](routines/)): agent-vs-agent gets its next PLAN.md phase, the two sites get a polish fix, and this repo
+  gets its next BACKLOG item. Projects with an open night PR are skipped until you review it.
 
 ## What's in here
 
