@@ -16,4 +16,4 @@ A software factory for Tony's side projects: a Claude Code plugin (`plugin/`), r
   permissions there, then extend `tests/guard.sh`.
 - Prove agent-facing changes with a real `bin/factory run <project> --from <checkout> "<task>"`.
 - Keep agent-facing text short. Agents never merge; `.github/workflows/automerge.yml` merges agent PRs
-  when CI passes, except ones touching `.github/` or `tests/validate.sh`. Never put secrets where an agent can read them.
+  when CI passes, gate changes included, so never weaken CI or `tests/validate.sh` to get green. Never put secrets where an agent can read them.

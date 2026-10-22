@@ -55,8 +55,8 @@ cheap model, merged and deployed with as little human effort as safety allows.
    `main` first if it has anything `main` lacks. Also check that succulents.info has the `CLOUDFLARE_API_TOKEN` and
    `CLOUDFLARE_ACCOUNT_ID` secrets.
 3. **Auto-merge on the projects:** done for the factory itself (2026-10-22, `.github/workflows/automerge.yml`:
-   squash-merges `claude/*` and `ccr-*` PRs once CI passes, skipping drafts, `no-automerge` and changes to
-   `.github/` or `tests/validate.sh`). For the projects, Tony asked for it too. The previous agent's code change, `gh pr merge --auto` after a clean run (opt-in
+   squash-merges `claude/*` and `ccr-*` PRs once CI passes, skipping only drafts and `no-automerge`; gate
+   changes included, Tony's choice). For the projects, Tony asked for it too. The previous agent's code change, `gh pr merge --auto` after a clean run (opt-in
    per project, never for PRs touching `.github/`), was **blocked by Claude Code's permission classifier ("Merge
    Without Review")**. Don't work around that. Either Tony allows it in his Claude Code permission settings, or he
    pastes the change himself. On top of that, each project needs "Allow auto-merge" plus a ruleset requiring its CI

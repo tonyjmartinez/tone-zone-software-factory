@@ -9,7 +9,7 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 **Defaults until Tony decides otherwise** (see [`docs/decisions/`](docs/decisions/)):
 - Build on stock Claude Code; Kody is not adopted.
 - Auto-merge on green CI for this repo's agent PRs (`claude/*`, `ccr-*`), via `.github/workflows/automerge.yml`.
-  PRs touching `.github/` or `tests/validate.sh` still need a human.
+  No exceptions; opt out per PR with a draft or the `no-automerge` label.
 - Reports go to the PR (a comment), not to Discord or Slack.
 
 **To pause it**, remove `NIGHTLY` from `projects/tone-zone-software-factory/project.env`.
@@ -18,7 +18,7 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 
 - [ ] **ADRs**: add `docs/decisions/` with short ADRs:
   - 0001: the agent is a Claude Code plugin, and every entry point runs the same command files;
-  - 0002: auto-merge on green CI for this repo's agent PRs, except gate changes (`automerge.yml`), and the risk
+  - 0002: auto-merge on green CI for this repo's agent PRs, with no exceptions (`automerge.yml`), and the risk
     tiers we'd use to extend it to the projects;
   - 0003: stock Claude Code over Kody for now, and what would change that.
 

@@ -2,9 +2,8 @@
 # default branch), squash-merge it. No ruleset needed: the green CI run on the PR's exact head commit
 # is the gate. Runs from the default branch's copy of this file, so a PR can't change its own gate.
 #
-# Left for a human (the PR gets one comment saying why):
-#   - draft PRs, or PRs labeled `no-automerge`;
-#   - PRs touching .github/ or tests/validate.sh, because CI runs the PR's own copy of those.
+# No exceptions for gate changes (.github/, tests/validate.sh): Tony chose that. Opt-outs: draft PRs,
+# or the `no-automerge` label.
 name: Auto-merge
 
 on:
@@ -50,17 +49,6 @@ jobs:
           if [ "$(jq -r .isDraft <<<"$pr")" = true ]; then echo "#$n is a draft."; exit 0; fi
           if jq -e '.labels | any(.name == "no-automerge")' <<<"$pr" >/dev/null; then
             echo "#$n is labeled no-automerge."; exit 0
-          fi
-
-          guarded=$(gh pr diff "$n" --name-only | grep -E '^(\.github/|tests/validate\.sh$)' || true)
-          if [ -n "$guarded" ]; then
-            echo "#$n touches the gate: $guarded"
-            marker='<!-- automerge:needs-human -->'
-            if ! gh pr view "$n" --json comments --jq '.comments[].body' | grep -qF "$marker"; then
-              gh pr comment "$n" --body "$marker
-          Not auto-merging: this PR changes the CI gate (\`.github/\` or \`tests/validate.sh\`), so a human merges it."
-            fi
-            exit 0
           fi
 
           gh pr merge "$n" --squash --match-head-commit "$SHA"
