@@ -8,7 +8,8 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 
 **Defaults until Tony decides otherwise** (see [`docs/decisions/`](docs/decisions/)):
 - Build on stock Claude Code; Kody is not adopted.
-- No auto-merge: a human merges everything.
+- Auto-merge on green CI for this repo's agent PRs (`claude/*`, `ccr-*`), via `.github/workflows/automerge.yml`.
+  No exceptions; opt out per PR with a draft or the `no-automerge` label.
 - Reports go to the PR (a comment), not to Discord or Slack.
 
 **To pause it**, remove `NIGHTLY` from `projects/tone-zone-software-factory/project.env`.
@@ -17,7 +18,8 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 
 - [ ] **ADRs**: add `docs/decisions/` with short ADRs:
   - 0001: the agent is a Claude Code plugin, and every entry point runs the same command files;
-  - 0002: no auto-merge yet, with the risk tiers we'd use if Tony grants merge authority later;
+  - 0002: auto-merge on green CI for this repo's agent PRs, with no exceptions (`automerge.yml`), and the risk
+    tiers we'd use to extend it to the projects;
   - 0003: stock Claude Code over Kody for now, and what would change that.
 
   Mark each one "Status: proposed (Tony to accept)".
@@ -59,7 +61,7 @@ Background: [`docs/research/kent-c-dodds-factory-handoff.md`](docs/research/kent
 
 ## Later (needs Tony)
 
-- [ ] Decide merge authority per risk tier (ADR 0002).
+- [ ] Decide merge authority for the projects (this repo auto-merges since 2026-10-22; ADR 0002).
 - [ ] Choose where reports land: Discord, Slack, or email via the Gmail connector.
 - [ ] Pipe signals in from Sentry, runtime errors and user feedback.
 - [ ] Add a nightly "keep tests tight" pass on each project, against a `testing-principles.md`.

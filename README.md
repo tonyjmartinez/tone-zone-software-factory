@@ -122,6 +122,10 @@ and JSON validity. So you can:
 - comment `@claude` on any PR here;
 - let the Night shift work through `BACKLOG.md` (`routines/backlog.md`), one PR at a time.
 
+**Auto-merge (this repo only):** `.github/workflows/automerge.yml` squash-merges a `claude/*` or `ccr-*` PR once CI
+passes on its head commit. No exceptions, workflow
+and `tests/validate.sh` changes included. Drafts and PRs labeled `no-automerge` wait for you. The agents still can't run `gh pr merge` themselves.
+
 It needs the same one-time setup as a project: the `CLAUDE_CODE_OAUTH_TOKEN` secret on this repo, and the Claude
 GitHub App installed on it.
 

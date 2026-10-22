@@ -54,7 +54,9 @@ cheap model, merged and deployed with as little human effort as safety allows.
 2. **Default branches:** set `main` as default on succulents.info and agent-vs-agent. Merge the `ccr-*` work into
    `main` first if it has anything `main` lacks. Also check that succulents.info has the `CLOUDFLARE_API_TOKEN` and
    `CLOUDFLARE_ACCOUNT_ID` secrets.
-3. **Auto-merge:** Tony asked for it. The previous agent's code change, `gh pr merge --auto` after a clean run (opt-in
+3. **Auto-merge on the projects:** done for the factory itself (2026-10-22, `.github/workflows/automerge.yml`:
+   squash-merges `claude/*` and `ccr-*` PRs once CI passes, skipping only drafts and `no-automerge`; gate
+   changes included, Tony's choice). For the projects, Tony asked for it too. The previous agent's code change, `gh pr merge --auto` after a clean run (opt-in
    per project, never for PRs touching `.github/`), was **blocked by Claude Code's permission classifier ("Merge
    Without Review")**. Don't work around that. Either Tony allows it in his Claude Code permission settings, or he
    pastes the change himself. On top of that, each project needs "Allow auto-merge" plus a ruleset requiring its CI
@@ -103,7 +105,7 @@ repo; edit `routines/cloud-run.md` to change all four at once.
 - Change agent permissions only in `plugin/commands/*.md`, then extend `tests/guard.sh`.
 - Prove agent-facing changes with a real `bin/factory run <project> --from <checkout> "<task>"`.
 - Cheap by default: Haiku where a measured trial shows it holds up, Sonnet otherwise, and Opus never on a schedule.
-- Never auto-merge without Tony's explicit, platform-permitted go-ahead.
+- Agents never merge. Auto-merge happens only in `automerge.yml`; extend it to a project only on Tony's go-ahead.
 - Never put secrets where an agent can read them.
 - Commits end with the session attribution lines. Work on a `claude/*` branch, and open PRs only when asked or when
   a routine does it.
