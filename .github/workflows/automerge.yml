@@ -1,0 +1,67 @@
+# Auto-merge: when CI passes on an agent PR (head branch claude/* or ccr-*, from this repo, into the
+# default branch), squash-merge it. No ruleset needed: the green CI run on the PR's exact head commit
+# is the gate. Runs from the default branch's copy of this file, so a PR can't change its own gate.
+#
+# Left for a human (the PR gets one comment saying why):
+#   - draft PRs, or PRs labeled `no-automerge`;
+#   - PRs touching .github/ or tests/validate.sh, because CI runs the PR's own copy of those.
+name: Auto-merge
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+concurrency:
+  group: automerge-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (startsWith(github.event.workflow_run.head_branch, 'claude/') ||
+       startsWith(github.event.workflow_run.head_branch, 'ccr-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - name: Merge if eligible
+        run: |
+          pr=$(gh pr list --head "$BRANCH" --state open --json number,headRefOid,baseRefName,isDraft,labels \
+            --jq "[.[] | select(.headRefOid == \"$SHA\")][0]")
+          if [ -z "$pr" ] || [ "$pr" = null ]; then
+            echo "No open PR on $BRANCH at $SHA (newer push, or already merged)."; exit 0
+          fi
+          n=$(jq -r .number <<<"$pr")
+          base=$(jq -r .baseRefName <<<"$pr")
+          if [ "$base" != "$DEFAULT_BRANCH" ]; then echo "#$n targets $base, not $DEFAULT_BRANCH."; exit 0; fi
+          if [ "$(jq -r .isDraft <<<"$pr")" = true ]; then echo "#$n is a draft."; exit 0; fi
+          if jq -e '.labels | any(.name == "no-automerge")' <<<"$pr" >/dev/null; then
+            echo "#$n is labeled no-automerge."; exit 0
+          fi
+
+          guarded=$(gh pr diff "$n" --name-only | grep -E '^(\.github/|tests/validate\.sh$)' || true)
+          if [ -n "$guarded" ]; then
+            echo "#$n touches the gate: $guarded"
+            marker='<!-- automerge:needs-human -->'
+            if ! gh pr view "$n" --json comments --jq '.comments[].body' | grep -qF "$marker"; then
+              gh pr comment "$n" --body "$marker
+          Not auto-merging: this PR changes the CI gate (\`.github/\` or \`tests/validate.sh\`), so a human merges it."
+            fi
+            exit 0
+          fi
+
+          gh pr merge "$n" --squash --match-head-commit "$SHA"
+          echo "Merged #$n at $SHA."

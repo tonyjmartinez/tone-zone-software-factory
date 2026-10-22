@@ -15,4 +15,5 @@ A software factory for Tony's side projects: a Claude Code plugin (`plugin/`), r
 - `plugin/commands/*.md` is the single source for what the agent does and may do (`allowed-tools`). Change
   permissions there, then extend `tests/guard.sh`.
 - Prove agent-facing changes with a real `bin/factory run <project> --from <checkout> "<task>"`.
-- Keep agent-facing text short. Never auto-merge. Never put secrets where an agent can read them.
+- Keep agent-facing text short. Agents never merge; `.github/workflows/automerge.yml` merges agent PRs
+  when CI passes, except ones touching `.github/` or `tests/validate.sh`. Never put secrets where an agent can read them.
